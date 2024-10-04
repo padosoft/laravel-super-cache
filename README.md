@@ -4,11 +4,11 @@
 
 A powerful caching solution for Laravel that uses Redis with Lua scripting, batch processing, and optimized tag management to handle high volumes of keys efficiently.
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/padosoft/laravel-uploadable.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-uploadable)
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/padosoft/laravel-super-cache.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-super-cache)
 [![Software License](https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square)](LICENSE.md)
-[![Build Status](https://img.shields.io/travis/padosoft/laravel-uploadable/master.svg?style=flat-square)](https://travis-ci.org/padosoft/laravel-uploadable)
-[![Quality Score](https://img.shields.io/scrutinizer/g/padosoft/laravel-uploadable.svg?style=flat-square)](https://scrutinizer-ci.com/g/padosoft/laravel-uploadable)
-[![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-uploadable.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-uploadable)
+[![CircleCI](https://circleci.com/gh/padosoft/laravel-super-cache.svg?style=shield)](https://circleci.com/gh/padosoft/laravel-super-cache)
+[![Quality Score](https://img.shields.io/scrutinizer/g/padosoft/laravel-super-cache.svg?style=flat-square)](https://scrutinizer-ci.com/g/padosoft/laravel-super-cache)
+[![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-super-cache.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-super-cache)
 
 ## Table of Contents
 
