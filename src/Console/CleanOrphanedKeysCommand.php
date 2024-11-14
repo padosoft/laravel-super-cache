@@ -9,7 +9,6 @@ class CleanOrphanedKeysCommand extends Command
 {
     protected $signature = 'supercache:clean-orphans';
     protected $description = 'Clean orphaned cache keys';
-
     protected RedisConnector $redis;
     protected int $numShards;
 
@@ -28,7 +27,7 @@ class CleanOrphanedKeysCommand extends Command
         $prefix = config('supercache.prefix');
 
         // Script Lua per pulire le chiavi orfane
-        $script = <<<LUA
+        $script = <<<'LUA'
         local shard_prefix = KEYS[1]
         local num_shards = tonumber(KEYS[2])
         local lock_key = KEYS[3]

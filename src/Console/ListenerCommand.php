@@ -10,7 +10,6 @@ class ListenerCommand extends Command
 {
     protected $signature = 'supercache:listener {namespace}';
     protected $description = 'Listener per eventi di scadenza chiavi Redis, filtrati per namespace';
-
     protected RedisConnector $redis;
     protected array $batch = []; // Accumula chiavi scadute
     protected int $batchSizeThreshold; // Numero di chiavi per batch
@@ -24,30 +23,6 @@ class ListenerCommand extends Command
         // Parametri di batch processing da config
         $this->batchSizeThreshold = config('supercache.batch_size');
         $this->timeThreshold = config('supercache.time_threshold'); // secondi
-    }
-
-    public function handle()
-    {
-        $namespace = $this->argument('namespace'); // Recupera il namespace passato come argomento
-        $this->info('Avviando il listener di scadenza Redis per il namespace: ' . $namespace);
-
-        if (!$this->checkRedisNotifications()) {
-            $this->error('Le notifiche di scadenza di Redis non sono abilitate. Abilitale per usare il listener.');
-            return;
-        }
-
-        // Pattern per ascoltare solo gli eventi che appartengono al namespace specificato
-        $pattern = "__keyevent@0__:expired:{$namespace}*";
-
-        // Sottoscrizione agli eventi di scadenza
-        $this->redis->getRedis()->psubscribe([$pattern], function ($message, $key) use ($namespace) {
-            $this->onExpireEvent($key);
-
-            // Verifica se è necessario processare il batch
-            if (count($this->batch) >= $this->batchSizeThreshold || $this->shouldProcessBatchByTime()) {
-                $this->processBatch();
-            }
-        });
     }
 
     /**
@@ -66,11 +41,13 @@ class ListenerCommand extends Command
         static $lastBatchTime = null;
         if (!$lastBatchTime) {
             $lastBatchTime = time();
+
             return false;
         }
 
         if ((time() - $lastBatchTime) >= $this->timeThreshold) {
             $lastBatchTime = time();
+
             return true;
         }
 
@@ -82,7 +59,7 @@ class ListenerCommand extends Command
      */
     protected function processBatch(): void
     {
-        $luaScript = <<<LUA
+        $luaScript = <<<'LUA'
         local keys = ARGV
         local prefix = KEYS[1]
         local shard_count = tonumber(KEYS[2])
@@ -119,11 +96,11 @@ class ListenerCommand extends Command
         try {
             // Esegue lo script Lua passando le chiavi in batch
             $this->redis->getRedis()->eval(
-                   $luaScript,
+                $luaScript,
                 // KEYS: prefix e numero di shard
-                   2,
-                   config('supercache.prefix'),
-                   config('supercache.num_shards'),
+                2,
+                config('supercache.prefix'),
+                config('supercache.num_shards'),
                 // ARGV: le chiavi del batch
                 ...$this->batch
             );
@@ -142,6 +119,32 @@ class ListenerCommand extends Command
     protected function checkRedisNotifications(): bool
     {
         $config = $this->redis->getRedis()->config('GET', 'notify-keyspace-events');
+
         return str_contains($config['notify-keyspace-events'], 'Ex');
+    }
+
+    public function handle()
+    {
+        $namespace = $this->argument('namespace'); // Recupera il namespace passato come argomento
+        $this->info('Avviando il listener di scadenza Redis per il namespace: ' . $namespace);
+
+        if (!$this->checkRedisNotifications()) {
+            $this->error('Le notifiche di scadenza di Redis non sono abilitate. Abilitale per usare il listener.');
+
+            return;
+        }
+
+        // Pattern per ascoltare solo gli eventi che appartengono al namespace specificato
+        $pattern = "__keyevent@0__:expired:{$namespace}*";
+
+        // Sottoscrizione agli eventi di scadenza
+        $this->redis->getRedis()->psubscribe([$pattern], function ($message, $key) use ($namespace) {
+            $this->onExpireEvent($key);
+
+            // Verifica se è necessario processare il batch
+            if (count($this->batch) >= $this->batchSizeThreshold || $this->shouldProcessBatchByTime()) {
+                $this->processBatch();
+            }
+        });
     }
 }

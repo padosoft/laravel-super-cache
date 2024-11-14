@@ -29,7 +29,7 @@ trait ManagesLocksAndShardsTrait
     protected function getShardNameForTag(string $tag, string $key): string
     {
         // Usa lo stesso algoritmo di sharding della cache manager
-        $hash = \xxHash32::hash($key);
+        $hash = crc32($key);
         $numShards = (int) config('supercache.num_shards');
         $shardIndex = $hash % $numShards;
 

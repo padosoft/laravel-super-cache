@@ -9,9 +9,10 @@ class SuperCacheManager
     use ManagesLocksAndShardsTrait;
 
     protected RedisConnector $redis;
-    public string $prefix;
     protected int $numShards;
+    public string $prefix;
     public bool $useNamespace;
+    public bool $isCluster = false;
 
     public function __construct(RedisConnector $redis)
     {
@@ -19,6 +20,19 @@ class SuperCacheManager
         $this->prefix = config('supercache.prefix');
         $this->numShards = (int) config('supercache.num_shards'); // Numero di shard per tag
         $this->useNamespace = (bool) config('supercache.use_namespace', false); // Flag per abilitare/disabilitare il namespace
+    }
+
+    /**
+     * Calcola il namespace in base alla chiave.
+     */
+    protected function calculateNamespace(string $key): string
+    {
+        // Usa una funzione hash per ottenere un namespace coerente per la chiave
+        $hash = crc32($key);
+        $numNamespaces = (int) config('supercache.num_namespace', 16); // Numero di namespace configurabili
+        $namespaceIndex = $hash % $numNamespaces;
+
+        return 'ns' . $namespaceIndex; // Ad esempio, 'ns0', 'ns1', ..., 'ns15'
     }
 
     /**
@@ -81,6 +95,7 @@ class SuperCacheManager
     {
         $finalKey = $this->getFinalKey($key);
         $value = $this->redis->getRedis()->get($finalKey);
+
         return $value ? unserialize($value) : null;
     }
 
@@ -121,6 +136,7 @@ class SuperCacheManager
     public function getTagsOfKey(string $key): array
     {
         $finalKey = $this->getFinalKey($key);
+
         return $this->redis->getRedis()->smembers($this->prefix . 'tags:' . $finalKey);
     }
 
@@ -146,7 +162,7 @@ class SuperCacheManager
     public function getShardNameForTag(string $tag, string $key): string
     {
         // Usa la funzione hash per calcolare lo shard della chiave
-        $hash = \xxHash32::hash($key);
+        $hash = crc32($key);
         $shardIndex = $hash % $this->numShards;
 
         return $this->prefix . 'tag:' . $tag . ':shard:' . $shardIndex;
@@ -162,24 +178,12 @@ class SuperCacheManager
         // Se il namespace è abilitato, calcola la chiave con namespace come suffisso
         if ($this->useNamespace) {
             $namespace = $this->calculateNamespace($key);
+
             return $this->prefix . $key . ':' . $namespace;
         }
 
         // Se il namespace è disabilitato, usa la chiave senza suffisso
         return $this->prefix . $key;
-    }
-
-    /**
-     * Calcola il namespace in base alla chiave.
-     */
-    protected function calculateNamespace(string $key): string
-    {
-        // Usa una funzione hash per ottenere un namespace coerente per la chiave
-        $hash = \xxHash32::hash($key);
-        $numNamespaces = (int) config('supercache.num_namespace', 16); // Numero di namespace configurabili
-        $namespaceIndex = $hash % $numNamespaces;
-
-        return 'ns' . $namespaceIndex; // Ad esempio, 'ns0', 'ns1', ..., 'ns15'
     }
 
     /**
@@ -192,13 +196,11 @@ class SuperCacheManager
 
     /**
      * Check if a cache key exists without retrieving the value.
-     *
-     * @param string $key
-     * @return bool
      */
     public function has(string $key): bool
     {
         $finalKey = $this->getFinalKey($key);
+
         return $this->redis->getRedis()->exists($finalKey) > 0;
     }
 
@@ -206,13 +208,12 @@ class SuperCacheManager
      * Increment a cache key by a given amount.
      * If the key does not exist, creates it with the increment value.
      *
-     * @param string $key
-     * @param int $increment
      * @return int The new value after incrementing.
      */
     public function increment(string $key, int $increment = 1): int
     {
         $finalKey = $this->getFinalKey($key);
+
         return $this->redis->getRedis()->incrby($finalKey, $increment);
     }
 
@@ -220,20 +221,19 @@ class SuperCacheManager
      * Decrement a cache key by a given amount.
      * If the key does not exist, creates it with the negative decrement value.
      *
-     * @param string $key
-     * @param int $decrement
      * @return int The new value after decrementing.
      */
     public function decrement(string $key, int $decrement = 1): int
     {
         $finalKey = $this->getFinalKey($key);
+
         return $this->redis->getRedis()->decrby($finalKey, $decrement);
     }
 
     /**
      * Get all keys matching given patterns.
      *
-     * @param array $patterns An array of patterns (e.g. ["product:*"])
+     * @param  array $patterns An array of patterns (e.g. ["product:*"])
      * @return array Array of key-value pairs.
      */
     public function getKeys(array $patterns): array

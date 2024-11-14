@@ -219,7 +219,7 @@ To efficiently handle cache keys and their associated tags, `laravel-super-cache
 To optimize performance when dealing with potentially large sets of keys associated with a single tag, `laravel-super-cache` employs a **sharding strategy**:
 
 - **Why Sharding?**: A single tag might be associated with a large number of keys. If all keys for a tag were stored in a single set, this could degrade performance. Sharding splits these keys across multiple smaller sets, distributing the load.
-- **How Sharding Works**: When a key is added to a tag, a fast hash function (e.g., `xxHash32`) is used to compute a shard index. The key is then stored in the appropriate shard for that tag.
+- **How Sharding Works**: When a key is added to a tag, a fast hash function (e.g., `crc32`) is used to compute a shard index. The key is then stored in the appropriate shard for that tag.
     - **Naming Convention for Sharded Sets**: Each set for a tag is named as `supercache:tag:<tag>:shard:<shard-number>`.
     - The number of shards is configurable through the `SUPERCACHE_NUM_SHARDS` setting, allowing you to balance between performance and memory usage.
 
@@ -261,7 +261,7 @@ By following this architecture, `laravel-super-cache` is designed to handle high
 ### Sharding for Efficient Tag Management
 ![sharding.webp](resources%2Fimages%2Fsharding.webp)
 Tags are distributed across multiple shards to optimize performance. 
-When a key is associated with a tag, it is added to a specific shard determined by a fast hashing function (xxHash32). 
+When a key is associated with a tag, it is added to a specific shard determined by a fast hashing function (crc32). 
 This sharding reduces the performance bottleneck by preventing single large sets from slowing down the cache operations.
 
 ### Locks for Concurrency Control
