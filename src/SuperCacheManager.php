@@ -37,12 +37,13 @@ class SuperCacheManager
 
     /**
      * Salva un valore nella cache senza tag.
+     * Il valore della chiave sarà serializzato tranne nel caso di valori numerici
      */
     public function put(string $key, mixed $value, ?int $ttl = null, ?string $connection_name = null): void
     {
         // Calcola la chiave con o senza namespace in base alla configurazione
         $finalKey = $this->getFinalKey($key);
-        $this->redis->getRedisConnection($connection_name)->set($finalKey, serialize($value));
+        $this->redis->getRedisConnection($connection_name)->set($finalKey, $this->serializeForRedis($value));
 
         if ($ttl !== null) {
             $this->redis->getRedisConnection($connection_name)->expire($finalKey, $ttl);
@@ -51,15 +52,15 @@ class SuperCacheManager
 
     /**
      * Salva un valore nella cache con uno o più tag.
+     * Il valore della chiave sarà serializzato tranne nel caso di valori numerici
      */
     public function putWithTags(string $key, mixed $value, array $tags, ?int $ttl = null, ?string $connection_name = null): void
     {
         $finalKey = $this->getFinalKey($key);
-
         // Usa pipeline solo se non è un cluster
         if (!$this->isCluster) {
             $this->redis->pipeline(function ($pipe) use ($finalKey, $value, $tags, $ttl) {
-                $pipe->set($finalKey, serialize($value));
+                $pipe->set($finalKey, $this->serializeForRedis($value));
 
                 if ($ttl !== null) {
                     $pipe->expire($finalKey, $ttl);
@@ -73,7 +74,7 @@ class SuperCacheManager
                 $pipe->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
             });
         } else {
-            $this->redis->getRedisConnection($connection_name)->set($finalKey, serialize($value));
+            $this->redis->getRedisConnection($connection_name)->set($finalKey, $this->serializeForRedis($value));
             if ($ttl !== null) {
                 $this->redis->getRedisConnection($connection_name)->expire($finalKey, $ttl);
             }
@@ -89,13 +90,14 @@ class SuperCacheManager
 
     /**
      * Recupera un valore dalla cache.
+     * Il valore della chiave sarà deserializzato tranne nel caso di valori numerici
      */
     public function get(string $key, ?string $connection_name = null): mixed
     {
         $finalKey = $this->getFinalKey($key);
         $value = $this->redis->getRedisConnection($connection_name)->get($finalKey);
 
-        return $value ? unserialize($value) : null;
+        return $value ? $this->unserializeForRedis($value) : null;
     }
 
     /**
@@ -212,7 +214,6 @@ class SuperCacheManager
     public function increment(string $key, int $increment = 1, ?string $connection_name = null): int
     {
         $finalKey = $this->getFinalKey($key);
-
         return $this->redis->getRedisConnection($connection_name)->incrby($finalKey, $increment);
     }
 
@@ -251,5 +252,13 @@ class SuperCacheManager
         }
 
         return $results;
+    }
+
+    private function serializeForRedis($value) {
+        return is_numeric($value) ? $value : serialize($value);
+    }
+
+    private function unserializeForRedis($value) {
+        return is_numeric($value) ? $value : unserialize($value);
     }
 }

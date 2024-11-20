@@ -2,11 +2,14 @@
 
 namespace Padosoft\SuperCache\Test\Unit;
 
+use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\Config;
 use PHPUnit\Framework\MockObject\Exception;
 use PHPUnit\Framework\TestCase;
 use Padosoft\SuperCache\SuperCacheManager;
 use Padosoft\SuperCache\RedisConnector;
-
+use Illuminate\Container\Container;
+use Illuminate\Config\Repository;
 class SuperCacheManagerTest extends TestCase
 {
     protected SuperCacheManager $superCache;
@@ -19,18 +22,55 @@ class SuperCacheManagerTest extends TestCase
     {
         parent::setUp();
 
-        // Mock di RedisConnector
-        $this->redis = $this->createMock(RedisConnector::class);
-        $this->superCache = new SuperCacheManager($this->redis);
+        // Create a new application instance
+        $this->app = new Application();
+
+        // Set the application instance to be used by facade
+        \Illuminate\Support\Facades\Facade::setFacadeApplication($this->app);
 
         // Mock per Redis
         $redisMock = $this->createMock(\Redis::class);
-        $this->redis->method('getRedis')->willReturn($redisMock);
+
+        // Mock di RedisConnector
+        $this->redis = $this->createMock(RedisConnector::class);
+        $this->redis->method('getRedisConnection')->willReturn($redisMock);
+
+
+        /*
+        Config::shouldReceive('get')
+              ->with('supercache.prefix')
+              ->andReturn('supercache:');
+
+        Config::shouldReceive('get')
+              ->with('supercache.num_shards')
+              ->andReturn(10);
+
+        Config::shouldReceive('get')
+              ->with('supercache.use_namespace')
+              ->andReturn(false);
+        */
+
+        // Inizializza il container
+        $container = new Container();
+
+        // Registra il binding per 'config'
+        $config = new Repository([
+                                     'supercache.prefix' => 'mocked_prefix',
+                                     'supercache.num_shards' => 10,
+                                 ]);
+        $container->instance('config', $config);
+
+        // Imposta il container come globale
+        Container::setInstance($container);
+
+        $this->superCache = new SuperCacheManager($this->redis);
+
     }
+
     protected function tearDown(): void
     {
         // Pulisce tutte le chiavi di test
-        $this->redis->getRedis()->flushall();
+        $this->redis->getRedisConnection()->flushall();
         parent::tearDown();
     }
 
@@ -59,9 +99,9 @@ class SuperCacheManagerTest extends TestCase
         // Configura se usare o meno il namespace
         $this->superCache->useNamespace = $namespaceEnabled;
 
-        $redis = $this->redis->getRedis();
+        $redis = $this->redis->getRedisConnection();
         $finalKey = $this->superCache->getFinalKey($key);
-
+        $this->superCache->put($key, $value, $ttl);
         // Mock Redis set e expire
         $redis->expects($this->once())->method('set')->with($finalKey, serialize($value))->willReturn(true);
 
@@ -69,8 +109,8 @@ class SuperCacheManagerTest extends TestCase
             $redis->expects($this->once())->method('expire')->with($finalKey, $ttl)->willReturn(true);
         }
 
-        $result = $this->superCache->put($key, $value, $ttl);
-        $this->assertEquals($expected, $result);
+        ds($this->superCache->get($key));
+        $this->assertEquals($value, $this->superCache->get($key));
     }
 
     /**
@@ -98,7 +138,7 @@ class SuperCacheManagerTest extends TestCase
         // Configura se usare o meno il namespace
         $this->superCache->useNamespace = $namespaceEnabled;
 
-        $redis = $this->redis->getRedis();
+        $redis = $this->redis->getRedisConnection();
         $finalKey = $this->superCache->getFinalKey($key);
 
         // Mock Redis set, expire, sadd
@@ -144,7 +184,7 @@ class SuperCacheManagerTest extends TestCase
         // Configura se usare o meno il namespace
         $this->superCache->useNamespace = $namespaceEnabled;
 
-        $redis = $this->redis->getRedis();
+        $redis = $this->redis->getRedisConnection();
         $finalKey = $this->superCache->getFinalKey($key);
 
         // Mock Redis smembers, srem, del
