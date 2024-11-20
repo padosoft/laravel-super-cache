@@ -7,20 +7,20 @@ trait ManagesLocksAndShardsTrait
     /**
      * Acquisisce un lock ottimistico su una chiave.
      */
-    protected function acquireLock(string $key): bool
+    protected function acquireLock(string $key, ?string $connection_name = null): bool
     {
         $lockKey = 'lock:' . $key;
         // Tenta di acquisire il lock con un timeout di 10 secondi
-        return $this->redis->getRedis()->set($lockKey, '1', 'NX', 'EX', 10);
+        return $this->redis->getRedisConnection($connection_name)->set($lockKey, '1', 'NX', 'EX', 10);
     }
 
     /**
      * Rilascia un lock ottimistico su una chiave.
      */
-    protected function releaseLock(string $key): void
+    protected function releaseLock(string $key, ?string $connection_name = null): void
     {
         $lockKey = 'lock:' . $key;
-        $this->redis->getRedis()->del($lockKey);
+        $this->redis->getRedisConnection($connection_name)->del($lockKey);
     }
 
     /**
@@ -36,4 +36,3 @@ trait ManagesLocksAndShardsTrait
         return config('supercache.prefix') . 'tag:' . $tag . ':shard:' . $shardIndex;
     }
 }
-

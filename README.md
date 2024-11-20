@@ -65,7 +65,23 @@ To install `laravel-super-cache`, use Composer:
 composer require padosoft/laravel-super-cache
 ```
 
-After installing the package, publish the configuration file:
+After installing the package, add to in the config/app.php file of your main project
+
+```php
+'providers' => [
+        /*
+         * Laravel Framework Service Providers...
+         */
+        Illuminate\Auth\AuthServiceProvider::class,
+        ...
+        /*
+         * Super Cache
+         */
+        Padosoft\SuperCache\SuperCacheServiceProvider::class,
+    ],
+```
+
+and then publish the configuration file:
 
 ```bash 
 php artisan vendor:publish --provider="Padosoft\SuperCache\SuperCacheServiceProvider"
@@ -137,6 +153,10 @@ If you are using Redis on AWS ElastiCache, follow these steps to enable expiry n
 
 After configuring the `notify-keyspace-events` parameter, Redis will publish `EXPIRED` events when keys expire, allowing the `laravel-super-cache` listener to process these events correctly.
 
+Assicurarsi che php abbia questo parametro, altrimenti dopo 60 secondo il comando esce perchè la connessione viene interrotta
+```
+default_socket_timeout = -1
+```
 
 ### Scheduled Command for Orphaned Key Cleanup (Optionally but recommended)
 Optionally but recommended, a scheduled command can be configured to periodically clean up any orphaned keys or sets left due to unexpected interruptions or errors. This adds an additional safety net to maintain consistency across cache keys and tags.
