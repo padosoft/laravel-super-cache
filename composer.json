@@ -1,14 +1,14 @@
 {
-    "name": "padosoft/laravel-super-cache-invalidate",
-    "description": "A powerful package that provides an efficient and scalable cache invalidation system for Laravel applications. It is designed to handle high-throughput cache invalidation scenarios, such as those found in e-commerce platforms, by implementing advanced techniques like event queuing, coalescing, debouncing, sharding, and partitioning.",
+    "name": "padosoft/laravel-super-cache",
+    "description": "A Laravel package for advanced caching with tags and namespaces in Redis.",
     "keywords": [
         "padosoft",
         "cache",
-        "laravel-super-cache-invalidate",
+        "laravel-super-cache",
         "redis",
         "redis-cache"
     ],
-    "homepage": "https://github.com/padosoft/laravel-super-cache-invalidate",
+    "homepage": "https://github.com/padosoft/laravel-super-cache",
     "license": "MIT",
     "authors": [
         {
@@ -41,12 +41,12 @@
     },
     "autoload": {
         "psr-4": {
-            "Padosoft\\SuperCacheInvalidate\\": "src"
+            "Padosoft\\SuperCache\\": "src"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Padosoft\\SuperCacheInvalidate\\Test\\": "tests"
+            "Padosoft\\SuperCache\\Test\\": "tests"
         }
     },
     "config": {

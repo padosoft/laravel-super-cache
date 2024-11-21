@@ -9,7 +9,7 @@ executors:
             php-version:
                 type: string
                 default: "8.0"
-        working_directory: ~/laravel-super-cache-invalidate
+        working_directory: ~/laravel-super-cache
 
 jobs:
     test:
