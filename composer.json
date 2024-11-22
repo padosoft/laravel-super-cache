@@ -1,6 +1,5 @@
 {
     "name": "padosoft/laravel-super-cache",
-    "version": "1.0.0",
     "description": "A Laravel package for advanced caching with tags and namespaces in Redis.",
     "keywords": [
         "padosoft",
