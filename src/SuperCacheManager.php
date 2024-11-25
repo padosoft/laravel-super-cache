@@ -22,6 +22,16 @@ class SuperCacheManager
         $this->useNamespace = (bool) config('supercache.use_namespace', false); // Flag per abilitare/disabilitare il namespace
     }
 
+    private function serializeForRedis($value)
+    {
+        return is_numeric($value) ? $value : serialize($value);
+    }
+
+    private function unserializeForRedis($value)
+    {
+        return is_numeric($value) ? $value : unserialize($value);
+    }
+
     /**
      * Calcola il namespace in base alla chiave.
      */
@@ -214,6 +224,7 @@ class SuperCacheManager
     public function increment(string $key, int $increment = 1, ?string $connection_name = null): int
     {
         $finalKey = $this->getFinalKey($key);
+
         return $this->redis->getRedisConnection($connection_name)->incrby($finalKey, $increment);
     }
 
@@ -254,11 +265,25 @@ class SuperCacheManager
         return $results;
     }
 
-    private function serializeForRedis($value) {
-        return is_numeric($value) ? $value : serialize($value);
+    /**
+     * Acquire a lock.
+     *
+     * @param  string $key The lock key.
+     * @return bool   True if the lock was acquired, false otherwise.
+     */
+    public function lock(string $key, ?string $connection_name = null): bool
+    {
+        return $this->acquireLock($key, $connection_name);
     }
 
-    private function unserializeForRedis($value) {
-        return is_numeric($value) ? $value : unserialize($value);
+    /**
+     * Rilascia un lock precedentemente acquisito.
+     *
+     * @param string      $key             La chiave del lock da rilasciare.
+     * @param string|null $connection_name Il nome della connessione opzionale da utilizzare. Se null, verrà utilizzata la connessione predefinita.
+     */
+    public function unLock(string $key, ?string $connection_name = null): void
+    {
+        $this->releaseLock($key, $connection_name);
     }
 }
