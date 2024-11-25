@@ -271,9 +271,10 @@ class SuperCacheManager
      * @param  string $key The lock key.
      * @return bool   True if the lock was acquired, false otherwise.
      */
-    public function lock(string $key, ?string $connection_name = null): bool
+    public function lock(string $key, ?string $connection_name = null, ?int $ttl = 10): bool
     {
-        return $this->redis->getRedisConnection($connection_name)->set($key, '1', 'NX', 'EX', 10);
+        $result = $this->redis->getRedisConnection($connection_name)->set($key, 1, ['NX', 'EX' => $ttl]);
+        return $result !== false;
     }
 
     /**
