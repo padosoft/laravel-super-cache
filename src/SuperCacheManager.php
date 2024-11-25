@@ -273,7 +273,7 @@ class SuperCacheManager
      */
     public function lock(string $key, ?string $connection_name = null): bool
     {
-        return $this->acquireLock($key, $connection_name);
+        return $this->redis->getRedisConnection($connection_name)->set($key, '1', 'NX', 'EX', 10);
     }
 
     /**
@@ -284,6 +284,6 @@ class SuperCacheManager
      */
     public function unLock(string $key, ?string $connection_name = null): void
     {
-        $this->releaseLock($key, $connection_name);
+        $this->redis->getRedisConnection($connection_name)->del($key);
     }
 }
