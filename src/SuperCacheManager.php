@@ -99,6 +99,38 @@ class SuperCacheManager
     }
 
     /**
+     * Memoizza un valore nella cache utilizzando tag specifici.
+     *
+     * Questa funzione memorizza un risultato di un callback in cache associato a dei tag specifici.
+     * Se il valore esiste già nella cache, viene semplicemente restituito. Altrimenti, viene
+     * eseguito il callback per ottenere il valore, che poi viene memorizzato con i tag specificati.
+     *
+     * @param string $key La chiave sotto la quale memorizzare il valore.
+     * @param array $tags Un array di tag associati al valore memorizzato.
+     * @param \Closure $callback La funzione di callback che fornisce il valore da memorizzare se non esistente.
+     * @param int|null $ttl Tempe di vita (time-to-live) in secondi del valore memorizzato. (opzionale)
+     * @param string|null $connection_name Il nome della connessione cache da utilizzare. (opzionale)
+     *
+     * @return mixed Il valore memorizzato e/o recuperato dalla cache.
+     */
+    public function rememberWithTags($key, array $tags, \Closure $callback, ?int $ttl = null, ?string $connection_name = null)
+    {
+        $value = $this->get($key, $connection_name);
+
+        // Se esiste già, ok la ritorno
+        if (! is_null($value)) {
+            return $value;
+        }
+
+        $value = $callback();
+
+        $this->put($key, $value, value($ttl, $value));
+        $this->putWithTags($key, $tags, $value, $ttl, $connection_name);
+
+        return $value;
+    }
+
+    /**
      * Recupera un valore dalla cache.
      * Il valore della chiave sarà deserializzato tranne nel caso di valori numerici
      */
@@ -273,8 +305,8 @@ class SuperCacheManager
      */
     public function lock(string $key, ?string $connection_name = null, ?int $ttl = 10): bool
     {
-        $result = $this->redis->getRedisConnection($connection_name)->set($key, 1, ['NX', 'EX' => $ttl]);
-        return $result !== false;
+        return $this->redis->getRedisConnection($connection_name)->set($key, 1, ['NX', 'EX' => $ttl]);
+        //return $result !== false;
     }
 
     /**
