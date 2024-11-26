@@ -105,27 +105,26 @@ class SuperCacheManager
      * Se il valore esiste già nella cache, viene semplicemente restituito. Altrimenti, viene
      * eseguito il callback per ottenere il valore, che poi viene memorizzato con i tag specificati.
      *
-     * @param string $key La chiave sotto la quale memorizzare il valore.
-     * @param array $tags Un array di tag associati al valore memorizzato.
-     * @param \Closure $callback La funzione di callback che fornisce il valore da memorizzare se non esistente.
-     * @param int|null $ttl Tempe di vita (time-to-live) in secondi del valore memorizzato. (opzionale)
-     * @param string|null $connection_name Il nome della connessione cache da utilizzare. (opzionale)
-     *
-     * @return mixed Il valore memorizzato e/o recuperato dalla cache.
+     * @param  string      $key             La chiave sotto la quale memorizzare il valore.
+     * @param  array       $tags            Un array di tag associati al valore memorizzato.
+     * @param  \Closure    $callback        La funzione di callback che fornisce il valore da memorizzare se non esistente.
+     * @param  int|null    $ttl             Tempe di vita (time-to-live) in secondi del valore memorizzato. (opzionale)
+     * @param  string|null $connection_name Il nome della connessione cache da utilizzare. (opzionale)
+     * @return mixed       Il valore memorizzato e/o recuperato dalla cache.
      */
     public function rememberWithTags($key, array $tags, \Closure $callback, ?int $ttl = null, ?string $connection_name = null)
     {
-        $value = $this->get($key, $connection_name);
+        $finalKey = $this->getFinalKey($key);
+        $value = $this->get($finalKey, $connection_name);
 
         // Se esiste già, ok la ritorno
-        if (! is_null($value)) {
+        if ($value !== null) {
             return $value;
         }
 
         $value = $callback();
 
-        $this->put($key, $value, value($ttl, $value));
-        $this->putWithTags($key, $value, $tags, $ttl, $connection_name);
+        $this->putWithTags($finalKey, $value, $tags, $ttl, $connection_name);
 
         return $value;
     }
@@ -305,7 +304,7 @@ class SuperCacheManager
      */
     public function lock(string $key, ?string $connection_name = null, ?int $ttl = 10): bool
     {
-        return $this->redis->getRedisConnection($connection_name)->set($key, 1, ['NX', 'EX' => $ttl]);
+        return $this->redis->getRedisConnection($connection_name)->set($key, 1, 'NX', 'EX', $ttl);
         //return $result !== false;
     }
 
