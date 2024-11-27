@@ -12,7 +12,7 @@ trait ManagesLocksAndShardsTrait
         $lockKey = 'lock:' . $key;
         // Tenta di acquisire il lock con un timeout di 10 secondi
         //return $this->redis->getRedisConnection($connection_name)->set($lockKey, '1', 'NX', 'EX', 10);
-        return $this->redis->getRedisConnection($connection_name)->set($key, 1, 'NX', 'EX', 10);
+        return $this->redis->getRedisConnection($connection_name)->set($key, 1, 'EX', 10, 'NX');
     }
 
     /**
