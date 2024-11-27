@@ -144,9 +144,13 @@ class SuperCacheManager
     /**
      * Rimuove una chiave dalla cache e dai suoi set di tag.
      */
-    public function forget(string $key, ?string $connection_name = null): void
+    public function forget(string $key, ?string $connection_name = null, ?bool $isFinalKey = false): void
     {
-        $finalKey = $this->getFinalKey($key);
+        if ($isFinalKey) {
+            $finalKey = $key;
+        } else {
+            $finalKey = $this->getFinalKey($key);
+        }
 
         // Recupera i tag associati alla chiave
         $tags = $this->redis->getRedisConnection($connection_name)->smembers($this->prefix . 'tags:' . $finalKey);
@@ -169,6 +173,19 @@ class SuperCacheManager
 
             $this->redis->getRedisConnection($connection_name)->del($this->prefix . 'tags:' . $finalKey);
             $this->redis->getRedisConnection($connection_name)->del($finalKey);
+        }
+    }
+
+    public function flushByTags(array $tags, ?string $connection_name = null): void
+    {
+        // ATTENZIONE, non si può fare in pipeline perchè ci sono anche comandi Redis che hanno bisogno di una promise
+        // perchè restituiscono dei valori necessari alle istruzioni successive
+        foreach ($tags as $tag) {
+            $keys = $this->getKeysOfTag($tag, $connection_name);
+            foreach ($keys as $key) {
+                // Con questo cancello sia i tag che le chiavi
+                $this->forget($key, $connection_name, true);
+            }
         }
     }
 
@@ -314,6 +331,7 @@ class SuperCacheManager
         if ($ttl !== null) {
             $this->redis->getRedisConnection($connection_name)->expire($finalKey, $ttl);
         }
+
         return true;
     }
 
