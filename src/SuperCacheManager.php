@@ -304,8 +304,17 @@ class SuperCacheManager
      */
     public function lock(string $key, ?string $connection_name = null, ?int $ttl = 10): bool
     {
-        return $this->redis->getRedisConnection($connection_name)->set($key, 1, 'EX', $ttl, 'NX');
-        //return $result !== false;
+        //return $this->redis->getRedisConnection($connection_name)->set($key, 1, 'EX', $ttl, 'NX');
+        $finalKey = $this->getFinalKey($key);
+        if ($this->has($finalKey)) {
+            return false;
+        }
+        $this->redis->getRedisConnection($connection_name)->set($finalKey, $this->serializeForRedis('1'));
+
+        if ($ttl !== null) {
+            $this->redis->getRedisConnection($connection_name)->expire($finalKey, $ttl);
+        }
+        return true;
     }
 
     /**
