@@ -82,7 +82,7 @@ class SuperCacheManager
                 }
 
                 $pipe->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
-            });
+            }, $connection_name);
         } else {
             $this->redis->getRedisConnection($connection_name)->set($finalKey, $this->serializeForRedis($value));
             if ($ttl !== null) {
@@ -160,7 +160,7 @@ class SuperCacheManager
 
                 $pipe->del($this->prefix . 'tags:' . $finalKey);
                 $pipe->del($finalKey);
-            });
+            }, $connection_name);
         } else {
             foreach ($tags as $tag) {
                 $shard = $this->getShardNameForTag($tag, $finalKey);
