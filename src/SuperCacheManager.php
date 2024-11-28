@@ -60,6 +60,14 @@ class SuperCacheManager
         }
     }
 
+    public function getTTLKey(string $key, ?string $connection_name = null): int
+    {
+        // Calcola la chiave con o senza namespace in base alla configurazione
+        $finalKey = $this->getFinalKey($key);
+
+        return $this->redis->getRedisConnection($connection_name)->ttl($finalKey);
+    }
+
     /**
      * Salva un valore nella cache con uno o più tag.
      * Il valore della chiave sarà serializzato tranne nel caso di valori numerici
@@ -300,17 +308,41 @@ class SuperCacheManager
         $results = [];
         foreach ($patterns as $pattern) {
             // Trova le chiavi che corrispondono al pattern usando SCAN
-            $keys = $this->redis->getRedisConnection($connection_name)->scan(null, ['MATCH' => $this->prefix . $pattern]);
-
-            // Recupera i valori delle chiavi trovate
-            if ($keys) {
-                foreach ($keys as $key) {
-                    $results[$key] = $this->redis->getRedisConnection($connection_name)->get($key);
+            $iterator = null;
+            // Keys terminato il loop ritorna un false
+            $tempArrKeys = [];
+            while ($keys = $this->redis->getRedisConnection($connection_name)->scan(
+                $iterator,
+                [
+                    'match' => $pattern,
+                    'count' => 20,
+                ]
+            )) {
+                $iterator = $keys[0];
+                foreach ($keys[1] as $key) {
+                    $tempArrKeys[] = $key;
+                    if ($key === null) {
+                        continue;
+                    }
+                    $original_key = $this->getOriginalKey($key);
+                    $value = $this->get($original_key);
+                    $results[$original_key] = $value;
                 }
             }
         }
 
         return $results;
+    }
+
+    public function getOriginalKey(string $finalKey): string
+    {
+        $originalKey = str_replace([config('database.redis.options')['prefix'], $this->prefix], '', $finalKey);
+        if (!$this->useNamespace) {
+            return $originalKey;
+        }
+        $pattern = '/:ns\d+/';
+
+        return preg_replace($pattern, '', $originalKey);
     }
 
     /**

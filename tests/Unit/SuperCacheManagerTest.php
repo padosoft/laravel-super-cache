@@ -2,82 +2,31 @@
 
 namespace Padosoft\SuperCache\Test\Unit;
 
-use Illuminate\Foundation\Application;
-use Illuminate\Support\Facades\Config;
-use PHPUnit\Framework\MockObject\Exception;
-use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Test;
 use Padosoft\SuperCache\SuperCacheManager;
-use Padosoft\SuperCache\RedisConnector;
-use Illuminate\Container\Container;
-use Illuminate\Config\Repository;
+
 class SuperCacheManagerTest extends TestCase
 {
     protected SuperCacheManager $superCache;
-    protected RedisConnector $redis;
 
-    /**
-     * @throws Exception
-     */
     protected function setUp(): void
     {
         parent::setUp();
-
-        // Create a new application instance
-        $this->app = new Application();
-
-        // Set the application instance to be used by facade
-        \Illuminate\Support\Facades\Facade::setFacadeApplication($this->app);
-
-        // Mock per Redis
-        $redisMock = $this->createMock(\Redis::class);
-
-        // Mock di RedisConnector
-        $this->redis = $this->createMock(RedisConnector::class);
-        $this->redis->method('getRedisConnection')->willReturn($redisMock);
-
-
-        /*
-        Config::shouldReceive('get')
-              ->with('supercache.prefix')
-              ->andReturn('supercache:');
-
-        Config::shouldReceive('get')
-              ->with('supercache.num_shards')
-              ->andReturn(10);
-
-        Config::shouldReceive('get')
-              ->with('supercache.use_namespace')
-              ->andReturn(false);
-        */
-
-        // Inizializza il container
-        $container = new Container();
-
-        // Registra il binding per 'config'
-        $config = new Repository([
-                                     'supercache.prefix' => 'mocked_prefix',
-                                     'supercache.num_shards' => 10,
-                                 ]);
-        $container->instance('config', $config);
-
-        // Imposta il container come globale
-        Container::setInstance($container);
-
-        $this->superCache = new SuperCacheManager($this->redis);
-
+        $this->superCache = app(SuperCacheManager::class);
     }
 
     protected function tearDown(): void
     {
         // Pulisce tutte le chiavi di test
-        $this->redis->getRedisConnection()->flushall();
+        $this->superCache->flush();
         parent::tearDown();
     }
 
     /**
      * Data provider per il metodo `put`
      */
-    public function putDataProvider(): array
+    private static function test_put_data_provider(): array
     {
         return [
             // Caso con namespace abilitato
@@ -85,38 +34,14 @@ class SuperCacheManagerTest extends TestCase
             // Caso senza namespace
             ['key2', 'value2', null, true, false],
             // Caso con array e TTL
-            ['key3', ['array_value'], 600, true, true],
+            ['key3', ['v1', 'v2', 'v3'], 600, true, true],
         ];
-    }
-
-    /**
-     * Testa il metodo `put`
-     *
-     * @dataProvider putDataProvider
-     */
-    public function testPut(string $key, mixed $value, ?int $ttl, bool $expected, bool $namespaceEnabled): void
-    {
-        // Configura se usare o meno il namespace
-        $this->superCache->useNamespace = $namespaceEnabled;
-
-        $redis = $this->redis->getRedisConnection();
-        $finalKey = $this->superCache->getFinalKey($key);
-        $this->superCache->put($key, $value, $ttl);
-        // Mock Redis set e expire
-        $redis->expects($this->once())->method('set')->with($finalKey, serialize($value))->willReturn(true);
-
-        if ($ttl !== null) {
-            $redis->expects($this->once())->method('expire')->with($finalKey, $ttl)->willReturn(true);
-        }
-
-        ds($this->superCache->get($key));
-        $this->assertEquals($value, $this->superCache->get($key));
     }
 
     /**
      * Data provider per il metodo `putWithTags`
      */
-    public static function putWithTagsDataProvider(): array
+    private static function test_put_with_tags_data_provider(): array
     {
         return [
             // Caso con namespace e un singolo tag
@@ -124,45 +49,14 @@ class SuperCacheManagerTest extends TestCase
             // Caso senza namespace e più tag
             ['key2', 'value2', ['tag2', 'tag3'], null, true, false],
             // Caso con array, TTL e namespace
-            ['key3', ['array_value'], ['tag4'], 600, true, true],
+            ['key3', ['v1', 'v2', 'v3'], ['tag4'], 600, true, true],
         ];
-    }
-
-    /**
-     * Testa il metodo `putWithTags`
-     *
-     * @dataProvider putWithTagsDataProvider
-     */
-    public function testPutWithTags(string $key, mixed $value, array $tags, ?int $ttl, bool $expected, bool $namespaceEnabled): void
-    {
-        // Configura se usare o meno il namespace
-        $this->superCache->useNamespace = $namespaceEnabled;
-
-        $redis = $this->redis->getRedisConnection();
-        $finalKey = $this->superCache->getFinalKey($key);
-
-        // Mock Redis set, expire, sadd
-        $redis->expects($this->once())->method('set')->with($finalKey, serialize($value))->willReturn(true);
-
-        if ($ttl !== null) {
-            $redis->expects($this->once())->method('expire')->with($finalKey, $ttl)->willReturn(true);
-        }
-
-        foreach ($tags as $tag) {
-            $shard = $this->superCache->getShardNameForTag($tag, $key);
-            $redis->expects($this->once())->method('sadd')->with($shard, $finalKey);
-        }
-
-        $redis->expects($this->once())->method('sadd')->with($this->superCache->prefix . 'tags:' . $finalKey, ...$tags);
-
-        $result = $this->superCache->putWithTags($key, $value, $tags, $ttl);
-        $this->assertEquals($expected, $result);
     }
 
     /**
      * Data provider per il metodo `forget`
      */
-    public static function forgetDataProvider(): array
+    private static function test_forget_data_provider(): array
     {
         return [
             // Caso con un tag
@@ -174,34 +68,71 @@ class SuperCacheManagerTest extends TestCase
         ];
     }
 
-    /**
-     * Testa il metodo `forget`
-     *
-     * @dataProvider forgetDataProvider
-     */
-    public function testForget(string $key, array $tags, bool $namespaceEnabled): void
+    #[Test]
+    #[DataProvider('test_put_data_provider')]
+    public function test_put(string $key, mixed $value, ?int $ttl, bool $expected, bool $namespaceEnabled): void
     {
         // Configura se usare o meno il namespace
         $this->superCache->useNamespace = $namespaceEnabled;
+        $this->superCache->put($key, $value, $ttl);
+        $this->assertEquals($value, $this->superCache->get($key));
 
-        $redis = $this->redis->getRedisConnection();
-        $finalKey = $this->superCache->getFinalKey($key);
+        $ttlSet = $this->superCache->getTTLKey($key);
+        if ($ttl !== null) {
+            // Verifica che il TTL sia un valore positivo
+            $this->assertGreaterThan(0, $ttlSet);
+            // Deve essere al massimo $ttl secondi
+            $this->assertLessThanOrEqual($ttl, $ttlSet);
+        }
+    }
 
-        // Mock Redis smembers, srem, del
-        $redis->expects($this->once())->method('smembers')->with($this->superCache->prefix . 'tags:' . $finalKey)->willReturn($tags);
+    #[Test]
+    #[DataProvider('test_put_with_tags_data_provider')]
+    public function test_put_with_tags(string $key, mixed $value, array $tags, ?int $ttl, bool $expected, bool $namespaceEnabled): void
+    {
+        // Configura se usare o meno il namespace
+        $this->superCache->useNamespace = $namespaceEnabled;
+        $this->superCache->putWithTags($key, $value, $tags, $ttl);
+        // La chiave deve essere stata creata
+        $this->assertEquals($value, $this->superCache->get($key));
+        // La chiave deve avere i tag corretti
+        $this->assertEquals($tags, $this->superCache->getTagsOfKey($key));
+        $ttlSet = $this->superCache->getTTLKey($key);
+        if ($ttl !== null) {
+            // Verifica che il TTL sia un valore positivo
+            $this->assertGreaterThan(0, $ttlSet);
+            // Deve essere al massimo $ttl secondi
+            $this->assertLessThanOrEqual($ttl, $ttlSet);
+        }
+    }
 
-        foreach ($tags as $tag) {
-            $shard = $this->superCache->getShardNameForTag($tag, $finalKey);
-            $redis->expects($this->once())->method('srem')->with($shard, $finalKey);
+    #[Test]
+    #[DataProvider('test_forget_data_provider')]
+    public function test_forget(string $key, array $tags, bool $namespaceEnabled): void
+    {
+        // Configura se usare o meno il namespace
+        $this->superCache->useNamespace = $namespaceEnabled;
+        // Setto la chiave e i tag
+        if (count($tags) === 0) {
+            $this->superCache->put($key, '1');
+        } else {
+            $this->superCache->putWithTags($key, '1', $tags);
         }
 
-        $redis->expects($this->once())->method('del')->with($this->superCache->prefix . 'tags:' . $finalKey);
-        $redis->expects($this->once())->method('del')->with($finalKey);
-
+        // MI assicuro che la chiave sia stata inserita prima di rimuoverla  e controllo anche i tag
+        $this->assertEquals('1', $this->superCache->get($key));
+        $tagsCached = $this->superCache->getTagsOfKey($key);
+        $this->assertEquals($tags, $tagsCached);
         $this->superCache->forget($key);
-        $this->assertTrue(true); // Se non ci sono errori, il test è passato
+        // Dopo la rimozione devono essere spariti chiave e tag
+        $this->assertNull($this->superCache->get($key));
+        foreach ($tagsCached as $tag) {
+            $shard = $this->superCache->getShardNameForTag($tag, $key);
+            $this->assertNull($this->superCache->get($shard));
+        }
     }
-    public function testFlush(): void
+
+    public function test_flush(): void
     {
         $this->superCache->put('key1', 'value1');
         $this->superCache->flush();
@@ -209,7 +140,7 @@ class SuperCacheManagerTest extends TestCase
         $this->assertFalse($this->superCache->has('key1'));
     }
 
-    public function testHas(): void
+    public function test_has(): void
     {
         $this->superCache->put('key1', 'value1');
 
@@ -217,7 +148,7 @@ class SuperCacheManagerTest extends TestCase
         $this->assertFalse($this->superCache->has('non_existing_key'));
     }
 
-    public function testIncrement(): void
+    public function test_increment(): void
     {
         // Incrementa una chiave che non esiste (crea con valore 5)
         $newValue = $this->superCache->increment('counter', 5);
@@ -228,7 +159,7 @@ class SuperCacheManagerTest extends TestCase
         $this->assertEquals(8, $newValue);
     }
 
-    public function testDecrement(): void
+    public function test_decrement(): void
     {
         // Decrementa una chiave che non esiste (crea con valore -3)
         $newValue = $this->superCache->decrement('counter', 3);
@@ -239,17 +170,15 @@ class SuperCacheManagerTest extends TestCase
         $this->assertEquals(-5, $newValue);
     }
 
-    public function testGetKeys(): void
+    public function test_get_keys(): void
     {
         $this->superCache->put('product:1', 'product_value_1');
         $this->superCache->put('product:2', 'product_value_2');
         $this->superCache->put('order:1', 'order_value_1');
-
-        $keys = $this->superCache->getKeys(['product:*']);
-
+        $keys = $this->superCache->getKeys(['*product:*']);
         $this->assertCount(2, $keys);
-        $this->assertArrayHasKey('supercache:product:1', $keys);
-        $this->assertArrayHasKey('supercache:product:2', $keys);
-        $this->assertArrayNotHasKey('supercache:order:1', $keys);
+        $this->assertArrayHasKey('product:1', $keys);
+        $this->assertArrayHasKey('product:2', $keys);
+        $this->assertArrayNotHasKey('order:1', $keys);
     }
 }
