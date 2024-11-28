@@ -8,46 +8,22 @@ use Illuminate\Support\Facades\Log;
 
 class ListenerCommand extends Command
 {
-    protected $signature = 'supercache:listener {namespace}';
-    protected $description = 'Listener per eventi di scadenza chiavi Redis, filtrati per namespace';
-
+    protected $signature = 'supercache:listener {--connection_name= : (opzionale) nome della connessione redis}';
+    protected $description = 'Listener per eventi di scadenza chiavi Redis';
     protected RedisConnector $redis;
     protected array $batch = []; // Accumula chiavi scadute
     protected int $batchSizeThreshold; // Numero di chiavi per batch
     protected int $timeThreshold; // Tempo massimo prima di processare il batch
+    protected bool $useNamespace;
 
     public function __construct(RedisConnector $redis)
     {
         parent::__construct();
         $this->redis = $redis;
-
         // Parametri di batch processing da config
         $this->batchSizeThreshold = config('supercache.batch_size');
         $this->timeThreshold = config('supercache.time_threshold'); // secondi
-    }
-
-    public function handle()
-    {
-        $namespace = $this->argument('namespace'); // Recupera il namespace passato come argomento
-        $this->info('Avviando il listener di scadenza Redis per il namespace: ' . $namespace);
-
-        if (!$this->checkRedisNotifications()) {
-            $this->error('Le notifiche di scadenza di Redis non sono abilitate. Abilitale per usare il listener.');
-            return;
-        }
-
-        // Pattern per ascoltare solo gli eventi che appartengono al namespace specificato
-        $pattern = "__keyevent@0__:expired:{$namespace}*";
-
-        // Sottoscrizione agli eventi di scadenza
-        $this->redis->getRedis()->psubscribe([$pattern], function ($message, $key) use ($namespace) {
-            $this->onExpireEvent($key);
-
-            // Verifica se è necessario processare il batch
-            if (count($this->batch) >= $this->batchSizeThreshold || $this->shouldProcessBatchByTime()) {
-                $this->processBatch();
-            }
-        });
+        $this->useNamespace = (bool) config('supercache.use_namespace', false);
     }
 
     /**
@@ -55,7 +31,11 @@ class ListenerCommand extends Command
      */
     protected function onExpireEvent(string $key): void
     {
-        $this->batch[] = $key;
+        // Attenzione la chiave arriva completa con il prefisso da conf redis.oprion.prefix + il prefisso della supercache
+        // del tipo 'gescat_laravel_database_supercache:'
+        $original_key = str_replace(config('database.redis.options')['prefix'], '', $key);
+        $hash_key = crc32($original_key); // questo hash mi serve poi nello script LUA in quanto Redis non ha nativa la funzione crc32, ma solo il crc16 che però non è nativo in php
+        $this->batch[] = $original_key . '|' . $hash_key; // faccio la concatenzazione con il '|' come separatore in quanto Lua non supporta array multidimensionali
     }
 
     /**
@@ -66,11 +46,13 @@ class ListenerCommand extends Command
         static $lastBatchTime = null;
         if (!$lastBatchTime) {
             $lastBatchTime = time();
+
             return false;
         }
 
         if ((time() - $lastBatchTime) >= $this->timeThreshold) {
             $lastBatchTime = time();
+
             return true;
         }
 
@@ -82,57 +64,67 @@ class ListenerCommand extends Command
      */
     protected function processBatch(): void
     {
-        $luaScript = <<<LUA
-        local keys = ARGV
-        local prefix = KEYS[1]
-        local shard_count = tonumber(KEYS[2])
+        $luaScript = <<<'LUA'
 
-        for i, key in ipairs(keys) do
-            local lockKey = "lock:" .. key
-
-            -- Acquisisce un lock ottimistico sulla chiave
-            if redis.call("SET", lockKey, "1", "NX", "EX", 10) then
-                local fullKey = prefix .. key
-
+        local success, result = pcall(function()
+            local keys = ARGV
+            local prefix = KEYS[1]
+            local database_prefix = string.gsub(KEYS[3], "temp", "")
+            local shard_count = string.gsub(KEYS[2], database_prefix, "")
+            for i, key in ipairs(keys) do
+                local row = {}
+                for value in string.gmatch(key, "[^|]+") do
+                    table.insert(row, value)
+                end
+                local fullKey = database_prefix .. row[1]
+                -- redis.log(redis.LOG_NOTICE, 'Chiave Redis Expired: ' .. fullKey)
                 -- Controlla se la chiave è effettivamente scaduta
-                if not redis.call("EXISTS", fullKey) then
-                    local tagsKey = prefix .. 'tags:' .. key
+                if redis.call('EXISTS', fullKey) == 0 then
+                    local tagsKey = prefix .. 'tags:' .. row[1]
                     local tags = redis.call("SMEMBERS", tagsKey)
-
+                    -- redis.log(redis.LOG_NOTICE, 'Tags associati: ' .. table.concat(tags, ", "));
                     -- Rimuove la chiave dai set di tag associati
-                    for _, tag in ipairs(tags) do
-                        local shardIndex = crc32(key) % shard_count
+                    for j, tag in ipairs(tags) do
+                        local shardIndex = tonumber(row[2]) % tonumber(shard_count)
                         local shardKey = prefix .. "tag:" .. tag .. ":shard:" .. shardIndex
-                        redis.call("SREM", shardKey, fullKey)
+                        redis.call("SREM", shardKey, row[1])
+                        -- redis.log(redis.LOG_NOTICE, 'Rimossa chiave tag: ' .. shardKey);
                     end
-
                     -- Rimuove l'associazione della chiave con i tag
                     redis.call("DEL", tagsKey)
+                    -- redis.log(redis.LOG_NOTICE, 'Rimossa chiave tags: ' .. tagsKey);
+                else
+                    redis.log(redis.LOG_NOTICE, 'la chiave ' .. fullKey .. ' è ancora attiva');
                 end
-
-                -- Rilascia il lock
-                redis.call("DEL", lockKey)
             end
+        end)
+        if not success then
+            redis.log(redis.LOG_WARNING, "Errore durante l'esecuzione del batch: " .. result)
+            return result;
         end
+        return "OK"
         LUA;
 
+        $connection = $this->redis->getRedisConnection($this->option('connection_name'));
         try {
             // Esegue lo script Lua passando le chiavi in batch
-            $this->redis->getRedis()->eval(
-                   $luaScript,
+            $return = $connection->eval(
+                $luaScript,
                 // KEYS: prefix e numero di shard
-                   2,
-                   config('supercache.prefix'),
-                   config('supercache.num_shards'),
+                3,
+                config('supercache.prefix'),
+                config('supercache.num_shards'),
+                'temp',
                 // ARGV: le chiavi del batch
                 ...$this->batch
             );
-
+            if ($return !== 'OK') {
+                Log::error('Errore durante l\'esecuzione dello script Lua: ' . $return);
+            }
             // Pulisce il batch dopo il successo
             $this->batch = [];
         } catch (\Exception $e) {
-            Log::error('Errore nel processare il batch con Lua: ' . $e->getMessage());
-            // Qui puoi implementare una logica di retry o DLQ
+            Log::error('Errore durante l\'esecuzione dello script Lua: ' . $e->getMessage());
         }
     }
 
@@ -141,7 +133,31 @@ class ListenerCommand extends Command
      */
     protected function checkRedisNotifications(): bool
     {
-        $config = $this->redis->getRedis()->config('GET', 'notify-keyspace-events');
-        return str_contains($config['notify-keyspace-events'], 'Ex');
+        $config = $this->redis->getRedisConnection($this->option('connection_name'))->config('GET', 'notify-keyspace-events');
+
+        return str_contains($config['notify-keyspace-events'], 'Ex') || str_contains($config['notify-keyspace-events'], 'xE');
+    }
+
+    public function handle()
+    {
+        if (!$this->checkRedisNotifications()) {
+            $this->error('Le notifiche di scadenza di Redis non sono abilitate. Abilitale per usare il listener.');
+
+            return;
+        }
+
+        // è necessaria una connessione asyncrona, uso una connessione nativa
+        $async_connection = $this->redis->getNativeRedisConnection($this->option('connection_name'));
+        // Pattern per ascoltare solo gli eventi expired
+        $pattern = '__keyevent@' . $async_connection['database'] . '__:expired';
+        // Sottoscrizione agli eventi di scadenza
+        $async_connection['connection']->psubscribe([$pattern], function ($redis, $channel, $message, $key) {
+            $this->onExpireEvent($key);
+
+            // Verifica se è necessario processare il batch
+            if (count($this->batch) >= $this->batchSizeThreshold || $this->shouldProcessBatchByTime()) {
+                $this->processBatch();
+            }
+        });
     }
 }
