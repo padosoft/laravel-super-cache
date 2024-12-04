@@ -351,20 +351,25 @@ class SuperCacheManager
      * @param  string $key The lock key.
      * @return bool   True if the lock was acquired, false otherwise.
      */
-    public function lock(string $key, ?string $connection_name = null, ?int $ttl = 10): bool
+    public function lock(string $key, ?string $connection_name = null, int $ttl = 10, string $value = '1'): bool
     {
-        //return $this->redis->getRedisConnection($connection_name)->set($key, 1, 'EX', $ttl, 'NX');
         $finalKey = $this->getFinalKey($key);
-        if ($this->has($finalKey)) {
-            return false;
-        }
-        $this->redis->getRedisConnection($connection_name)->set($finalKey, $this->serializeForRedis('1'));
+        $luaScript = <<<'LUA'
+        if redis.call("SET", KEYS[1], ARGV[2], "NX", "EX", tonumber(ARGV[1])) then
+            return 1
+        else
+            return 0
+        end
+        LUA;
 
-        if ($ttl !== null) {
-            $this->redis->getRedisConnection($connection_name)->expire($finalKey, $ttl);
-        }
-
-        return true;
+        $result = $this->redis->getRedisConnection($connection_name)->eval(
+            $luaScript,
+            1, // Number of keys
+            $finalKey,
+            $ttl,
+            $value
+        );
+        return $result === 1;
     }
 
     /**
@@ -375,6 +380,14 @@ class SuperCacheManager
      */
     public function unLock(string $key, ?string $connection_name = null): void
     {
-        $this->redis->getRedisConnection($connection_name)->del($key);
+        $finalKey = $this->getFinalKey($key);
+        $luaScript = <<<'LUA'
+        redis.call('DEL', KEYS[1]);
+        LUA;
+        $this->redis->getRedisConnection($connection_name)->eval(
+            $luaScript,
+            1, // Number of keys
+            $finalKey
+        );
     }
 }
