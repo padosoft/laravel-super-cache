@@ -25,7 +25,7 @@ jobs:
       - checkout
       - run:
           name: Install Redis Extension
-          # ATTEZIONE! va messp il || true altrimenti il comando di install resta in attesa
+          #  ATTEZIONE! va messp il || true altrimenti il comando di install resta in attesa
           command: |
             yes 'no' | sudo pecl install -f redis || true
             sudo docker-php-ext-enable redis.so
