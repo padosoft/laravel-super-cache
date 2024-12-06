@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 
 class ListenerCommand extends Command
 {
-    protected $signature = 'supercache:listener {--connection_name= : (opzionale) nome della connessione redis}';
+    protected $signature = 'supercache:listener {--connection_name= : (opzionale) nome della connessione redis --checkEvent= : (opzionale) se 1 si esegue controllo su attivazione evento expired di Redis}';
     protected $description = 'Listener per eventi di scadenza chiavi Redis';
     protected RedisConnector $redis;
     protected array $batch = []; // Accumula chiavi scadute
@@ -133,6 +133,13 @@ class ListenerCommand extends Command
      */
     protected function checkRedisNotifications(): bool
     {
+        $checkEvent = $this->option('checkEvent');
+        if ($checkEvent === null) {
+            return true;
+        }
+        if ((int) $checkEvent === 0) {
+            return true;
+        }
         $config = $this->redis->getRedisConnection($this->option('connection_name'))->config('GET', 'notify-keyspace-events');
 
         return str_contains($config['notify-keyspace-events'], 'Ex') || str_contains($config['notify-keyspace-events'], 'xE');
