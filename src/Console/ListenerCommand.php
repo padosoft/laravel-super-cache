@@ -8,7 +8,9 @@ use Illuminate\Support\Facades\Log;
 
 class ListenerCommand extends Command
 {
-    protected $signature = 'supercache:listener {--connection_name= : (opzionale) nome della connessione redis --checkEvent= : (opzionale) se 1 si esegue controllo su attivazione evento expired di Redis}';
+    protected $signature = 'supercache:listener
+                                {--connection_name= : (opzionale) nome della connessione redis }
+                                {--checkEvent= : (opzionale) se 1 si esegue controllo su attivazione evento expired di Redis }';
     protected $description = 'Listener per eventi di scadenza chiavi Redis';
     protected RedisConnector $redis;
     protected array $batch = []; // Accumula chiavi scadute
