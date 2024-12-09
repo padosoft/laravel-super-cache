@@ -25,30 +25,30 @@ class RedisConnector
      * mentre per le sottoscrizioni è necessaria una connessione async
      *
      * @param  string|null $connection_name Optional. The name of the Redis connection to establish. If not provided, the default connection is used.
-     * @param  int|null    $isCluster       Optional. Se = 1 Redis è configurato in modalità cluster
      * @return array       The Redis connection instance and database.
      */
-    public function getNativeRedisConnection(?string $connection_name = null, int $isCluster = 0): array
+    public function getNativeRedisConnection(?string $connection_name = null): array
     {
-        $config = config('database.redis.' . ($connection_name ?? 'default'));
-        // Crea una nuova connessione nativa Redis
-        if ($isCluster === 1) {
-            $url = $config['host'] . ':' . $config['port'];
+        $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null ? true : false;
+        if ($isCluster) {
+            $config = config('database.redis.clusters.' . ($connection_name ?? 'default'));
+            $url = $config[0]['host'] . ':' . $config[0]['port'];
             $nativeRedisCluster = new \RedisCluster(
                 null, // Nome del cluster (può essere null)
-                $url, // Nodo master
-                30, // Timeout connessione
-                30, // Timeout lettura
+                [$url], // Nodo master
+                -1, // Timeout connessione
+                -1, // Timeout lettura
                 true, // Persistente
-                ($config['password'] !== null && $config['password'] !== '' ? $config['password'] : null)  // Password se necessaria
+                ($config[0]['password'] !== null &&  $config[0]['password'] !== '' ? $config[0]['password'] : null)  // Password se necessaria
             );
 
             // Nel cluster c'è sempre un unico databse
             return ['connection' => $nativeRedisCluster, 'database' => 0];
         }
+        // Crea una nuova connessione nativa Redis
         $nativeRedis = new \Redis();
         // Connessione al server Redis (no cluster)
-
+        $config = config('database.redis.' . ($connection_name ?? 'default'));
         $nativeRedis->connect($config['host'], $config['port']);
 
         // Autenticazione con username e password (se configurati)
