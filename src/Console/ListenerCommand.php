@@ -10,7 +10,8 @@ class ListenerCommand extends Command
 {
     protected $signature = 'supercache:listener
                                 {--connection_name= : (opzionale) nome della connessione redis }
-                                {--checkEvent= : (opzionale) se 1 si esegue controllo su attivazione evento expired di Redis }';
+                                {--checkEvent= : (opzionale) se 1 si esegue controllo su attivazione evento expired di Redis }
+                                {--isCluster= : (opzionale) se 1 ho un cluster Redis }';
     protected $description = 'Listener per eventi di scadenza chiavi Redis';
     protected RedisConnector $redis;
     protected array $batch = []; // Accumula chiavi scadute
@@ -156,7 +157,13 @@ class ListenerCommand extends Command
         }
 
         // è necessaria una connessione asyncrona, uso una connessione nativa
-        $async_connection = $this->redis->getNativeRedisConnection($this->option('connection_name'));
+        $isClusterOption = $this->option('isCluster');
+        $isCluster = 0;
+        if ($isClusterOption !== null) {
+            $isCluster = (int) $isClusterOption;
+        }
+        $async_connection = $this->redis->getNativeRedisConnection($this->option('connection_name'), $isCluster);
+
         // Pattern per ascoltare solo gli eventi expired
         $pattern = '__keyevent@' . $async_connection['database'] . '__:expired';
         // Sottoscrizione agli eventi di scadenza

@@ -25,28 +25,41 @@ class RedisConnector
      * mentre per le sottoscrizioni è necessaria una connessione async
      *
      * @param  string|null $connection_name Optional. The name of the Redis connection to establish. If not provided, the default connection is used.
+     * @param  int|null    $isCluster       Optional. Se = 1 Redis è configurato in modalità cluster
      * @return array       The Redis connection instance and database.
      */
-    public function getNativeRedisConnection(?string $connection_name = null): array
+    public function getNativeRedisConnection(?string $connection_name = null, int $isCluster = 0): array
     {
-        $config = config('database.redis.' . (isNotNullOrEmpty($connection_name) ? $connection_name : 'default'));
+        $config = config('database.redis.' . ($connection_name ?? 'default'));
         // Crea una nuova connessione nativa Redis
+        if ($isCluster === 1) {
+            $url = $config['host'] . ':' . $config['port'];
+            $nativeRedisCluster = new \RedisCluster(
+                null, // Nome del cluster (può essere null)
+                $url, // Nodo master
+                30, // Timeout connessione
+                30, // Timeout lettura
+                true, // Persistente
+                ($config['password'] !== null && $config['password'] !== '' ? $config['password'] : null)  // Password se necessaria
+            );
 
+            // Nel cluster c'è sempre un unico databse
+            return ['connection' => $nativeRedisCluster, 'database' => 0];
+        }
         $nativeRedis = new \Redis();
+        // Connessione al server Redis (no cluster)
 
-        // Connessione al server Redis
-        // Ottengo i parametri dalla connessione Laravel
         $nativeRedis->connect($config['host'], $config['port']);
 
         // Autenticazione con username e password (se configurati)
-        if (isNotNullOrEmpty($config['username']) && isNotNullOrEmpty($config['password'])) {
+        if ($config['username'] !== null && $config['password'] !== null && $config['password'] !== '' && $config['username'] !== '') {
             $nativeRedis->auth([$config['username'], $config['password']]);
-        } elseif (isNotNullOrEmpty($config['password'])) {
-            $nativeRedis->auth($config->password); // Per versioni Redis senza ACL
+        } elseif ($config['password'] !== null && $config['password'] !== '') {
+            $nativeRedis->auth($config['password']); // Per versioni Redis senza ACL
         }
 
         // Seleziono il database corretto
-        $database = isNotNullOrEmpty($config['database']) ? $config['database']: 0;
+        $database = ($config['database'] !== null && $config['database'] !== '') ? (int) $config['database'] : 0;
         $nativeRedis->select($database);
 
         return ['connection' => $nativeRedis, 'database' => $database];
