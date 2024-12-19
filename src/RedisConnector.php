@@ -6,60 +6,52 @@ use Illuminate\Support\Facades\Redis;
 
 class RedisConnector
 {
-    protected $connection;
-
-    public function __construct()
+    public function getRedisConnection(?string $connection_name = null): \Illuminate\Redis\Connections\Connection
     {
-        $this->connection = config('supercache.connection');
-    }
-
-    public function getRedisConnection(?string $connection_name = null)
-    {
-        return Redis::connection($connection_name ?? $this->connection);
+        return Redis::connection($connection_name ?? config('supercache.connection'));
     }
 
     /**
-     * Establishes and returns a native Redis connection.
-     * Questo metodo ritorna una cionnessione redis senza utilizzare il wrapper di Laravel.
-     * La connessione nativa è necessaria per la sottoscrizione agli eventi (Es. psubscribe([...)) in quanto Laravel gestisce solo connessioni sync,
-     * mentre per le sottoscrizioni è necessaria una connessione async
+     * Establishes a native Redis connection based on the provided connection name and optional host and port.
      *
-     * @param  string|null $connection_name Optional. The name of the Redis connection to establish. If not provided, the default connection is used.
-     * @return array       The Redis connection instance and database.
+     * @param  string|null $connection_name The name of the Redis connection configuration to use. Defaults to 'default'.
+     * @param  string|null $host            The hostname to use for the connection. If not provided, it will be retrieved from the configuration.
+     * @param  string|null $port            The port number to use for the connection. If not provided, it will be retrieved from the configuration.
+     * @return array|null  Returns an associative array with the Redis connection instance and the selected database, or null on failure.
+     *                     The array contains:
+     *                     - 'connection': The instance of the native Redis connection.
+     *                     - 'database': The selected database index.
      */
-    public function getNativeRedisConnection(?string $connection_name = null): array
+    public function getNativeRedisConnection(?string $connection_name = null, ?string $host = null, ?string $port = null): ?array
     {
-        $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null ? true : false;
-        if ($isCluster) {
-            $config = config('database.redis.clusters.' . ($connection_name ?? 'default'));
-            $url = $config[0]['host'] . ':' . $config[0]['port'];
-            $nativeRedisCluster = new \RedisCluster(
-                null, // Nome del cluster (può essere null)
-                [$url], // Nodo master
-                -1, // Timeout connessione
-                -1, // Timeout lettura
-                true, // Persistente
-                ($config[0]['password'] !== null &&  $config[0]['password'] !== '' ? $config[0]['password'] : null)  // Password se necessaria
-            );
-
-            // Nel cluster c'è sempre un unico databse
-            return ['connection' => $nativeRedisCluster, 'database' => 0];
-        }
         // Crea una nuova connessione nativa Redis
+        $config = config('database.redis.clusters.' . ($connection_name ?? config('supercache.connection')));
+        if ($config !== null && ($host === null || $port === null)) {
+            // Sono nel caso del cluster, host e port sono obbligatori in quanto le connessioni vanno stabilite per ogni nodo del cluster
+            throw new \RuntimeException('Host e port non possono essere null per le connessioni in cluster');
+        }
+        if ($config === null) {
+            // Sono nel caso di una connessione standalone
+            $config = config('database.redis.' . ($connection_name ?? config('supercache.connection')));
+        }
         $nativeRedis = new \Redis();
-        // Connessione al server Redis (no cluster)
-        $config = config('database.redis.' . ($connection_name ?? 'default'));
-        $nativeRedis->connect($config['host'], $config['port']);
+        if ($host !== null && $port !== null) {
+            // Se ho host e port (caso del cluster) uso questi
+            $nativeRedis->connect($host, $port);
+        } else {
+            // Altrimenti utilizzo host e port dalla configurazione della connessione standalone
+            $nativeRedis->connect($config['host'], $config['port']);
+        }
 
         // Autenticazione con username e password (se configurati)
-        if ($config['username'] !== null && $config['password'] !== null && $config['password'] !== '' && $config['username'] !== '') {
+        if (array_key_exists('username', $config) && $config['username'] !== '' && array_key_exists('password', $config) && $config['password'] !== '') {
             $nativeRedis->auth([$config['username'], $config['password']]);
-        } elseif ($config['password'] !== null && $config['password'] !== '') {
+        } elseif (array_key_exists('password', $config) && $config['password'] !== '') {
             $nativeRedis->auth($config['password']); // Per versioni Redis senza ACL
         }
 
-        // Seleziono il database corretto
-        $database = ($config['database'] !== null && $config['database'] !== '') ? (int) $config['database'] : 0;
+        // Seleziono il database corretto (Per il cluster è sempre 0)
+        $database = (array_key_exists('database', $config) && $config['database'] !== '') ? (int) $config['database'] : 0;
         $nativeRedis->select($database);
 
         return ['connection' => $nativeRedis, 'database' => $database];
@@ -68,6 +60,6 @@ class RedisConnector
     // Metodo per ottimizzare le operazioni Redis con pipeline
     public function pipeline($callback, ?string $connection_name = null)
     {
-        return $this->getRedisConnection($connection_name)->pipeline($callback);
+        return $this->getRedisConnection(($connection_name ?? config('supercache.connection')))->pipeline($callback);
     }
 }
