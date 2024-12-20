@@ -67,11 +67,11 @@ class SuperCacheManager
          * }
          */
         if ($ttl !== null) {
-            $this->redis->getRedisConnection($connection_name)->setEx($finalKey, $ttl, $this->serializeForRedis($value));
+            $this->redis->getRedisConnection($connection_name)->setEx('{' . $finalKey . '}', $ttl, $this->serializeForRedis($value));
 
             return;
         }
-        $this->redis->getRedisConnection($connection_name)->set($finalKey, $this->serializeForRedis($value));
+        $this->redis->getRedisConnection($connection_name)->set('{' . $finalKey . '}', $this->serializeForRedis($value));
     }
 
     public function getTTLKey(string $key, ?string $connection_name = null, bool $isWithTags = false): int
@@ -79,7 +79,7 @@ class SuperCacheManager
         // Calcola la chiave con o senza namespace in base alla configurazione
         $finalKey = $this->getFinalKey($key, $isWithTags);
 
-        return $this->redis->getRedisConnection($connection_name)->ttl($isWithTags ? ('{' . $finalKey . '}') : $finalKey);
+        return $this->redis->getRedisConnection($connection_name)->ttl('{' . $finalKey . '}');
     }
 
     /**
@@ -89,7 +89,7 @@ class SuperCacheManager
     public function putWithTags(string $key, mixed $value, array $tags, ?int $ttl = null, ?string $connection_name = null): void
     {
         $finalKey = $this->getFinalKey($key, true);
-        $finalTags = $this->getFinalTag($finalKey, true);
+        $finalTags = $this->getFinalTag($finalKey);
         // Usa pipeline solo se non è un cluster
         $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null;
         if (!$isCluster) {
@@ -162,11 +162,8 @@ class SuperCacheManager
     public function get(string $key, ?string $connection_name = null, bool $isWithTags = false): mixed
     {
         $finalKey = $this->getFinalKey($key, $isWithTags);
-        if ($isWithTags) {
-            $finalKey = '{' . $finalKey . '}';
-        }
 
-        $value = $this->redis->getRedisConnection($connection_name)->get($finalKey);
+        $value = $this->redis->getRedisConnection($connection_name)->get('{' . $finalKey . '}');
 
         return $value ? $this->unserializeForRedis($value) : null;
     }
@@ -181,31 +178,31 @@ class SuperCacheManager
         } else {
             $finalKey = $this->getFinalKey($key, $isWithTags);
         }
-        $finalTags = $this->getFinalTag($finalKey, $isWithTags);
+        $finalTags = $this->getFinalTag($finalKey);
         // Recupera i tag associati alla chiave
         $tags = $this->redis->getRedisConnection($connection_name)->smembers($finalTags);
         $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null;
         if (!$isCluster) {
             $this->redis->pipeline(function ($pipe) use ($isWithTags, $onlyTags, $tags, $finalKey, $finalTags) {
                 foreach ($tags as $tag) {
-                    $shard = $this->getShardNameForTag($tag, ($isWithTags ? ('{' . $finalKey . '}') : $finalKey));
-                    $pipe->srem($shard, ($isWithTags ? ('{' . $finalKey . '}') : $finalKey));
+                    $shard = $this->getShardNameForTag($tag, '{' . $finalKey . '}');
+                    $pipe->srem($shard, '{' . $finalKey . '}');
                 }
 
                 $pipe->del($finalTags);
                 if (!$onlyTags) {
-                    $pipe->del($isWithTags ? ('{' . $finalKey . '}') : $finalKey);
+                    $pipe->del('{' . $finalKey . '}');
                 }
             }, $connection_name);
         } else {
             foreach ($tags as $tag) {
-                $shard = $this->getShardNameForTag($tag, ($isWithTags ? ('{' . $finalKey . '}') : $finalKey));
-                $this->redis->getRedisConnection($connection_name)->srem($shard, ($isWithTags ? ('{' . $finalKey . '}') : $finalKey));
+                $shard = $this->getShardNameForTag($tag, '{' . $finalKey . '}');
+                $this->redis->getRedisConnection($connection_name)->srem($shard, '{' . $finalKey . '}');
             }
 
             $this->redis->getRedisConnection($connection_name)->del($finalTags);
             if (!$onlyTags) {
-                $this->redis->getRedisConnection($connection_name)->del($isWithTags ? ('{' . $finalKey . '}') : $finalKey);
+                $this->redis->getRedisConnection($connection_name)->del('{' . $finalKey . '}');
             }
         }
     }
@@ -229,7 +226,7 @@ class SuperCacheManager
     public function getTagsOfKey(string $key, ?string $connection_name = null): array
     {
         $finalKey = $this->getFinalKey($key, true);
-        $finalTags = $this->getFinalTag($finalKey, true);
+        $finalTags = $this->getFinalTag($finalKey);
 
         return $this->redis->getRedisConnection($connection_name)->smembers($finalTags);
     }
@@ -283,13 +280,9 @@ class SuperCacheManager
         return $this->prefix . $key . ($isWithTags ? ':byTags' : '');
     }
 
-    public function getFinalTag(string $finalKey, bool $isWithTags = false): string
+    public function getFinalTag(string $finalKey): string
     {
-        if ($isWithTags) {
-            return '{' . $finalKey . '}:tags';
-        }
-
-        return $finalKey . ':tags';
+        return '{' . $finalKey . '}:tags';
     }
 
     /**
@@ -308,10 +301,10 @@ class SuperCacheManager
         if ($isfinalKey) {
             $finalKey = $key;
         } else {
-            $finalKey = $this->getFinalKey($key, $isWithTags);
+            $finalKey = '{' . $this->getFinalKey($key, $isWithTags) . '}';
         }
 
-        return $this->redis->getRedisConnection($connection_name)->exists(($isWithTags && !$isfinalKey) ? ('{' . $finalKey . '}') : $finalKey) > 0;
+        return $this->redis->getRedisConnection($connection_name)->exists($finalKey) > 0;
     }
 
     /**
