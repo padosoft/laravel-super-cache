@@ -143,7 +143,7 @@ class SuperCacheManager
 
         $value = $callback();
 
-        $this->putWithTags($finalKey, $value, $tags, $ttl, $connection_name);
+        $this->putWithTags($key, $value, $tags, $ttl, $connection_name);
 
         return $value;
     }
