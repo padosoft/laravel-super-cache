@@ -94,10 +94,10 @@ class SuperCacheManagerTest extends TestCase
         $this->superCache->useNamespace = $namespaceEnabled;
         $this->superCache->putWithTags($key, $value, $tags, $ttl);
         // La chiave deve essere stata creata
-        $this->assertEquals($value, $this->superCache->get($key));
+        $this->assertEquals($value, $this->superCache->get($key, null, true));
         // La chiave deve avere i tag corretti
         $this->assertEquals($tags, $this->superCache->getTagsOfKey($key));
-        $ttlSet = $this->superCache->getTTLKey($key);
+        $ttlSet = $this->superCache->getTTLKey($key, null, true);
         if ($ttl !== null) {
             // Verifica che il TTL sia un valore positivo
             $this->assertGreaterThan(0, $ttlSet);
@@ -119,13 +119,13 @@ class SuperCacheManagerTest extends TestCase
             $this->superCache->putWithTags($key, '1', $tags);
         }
 
-        // MI assicuro che la chiave sia stata inserita prima di rimuoverla  e controllo anche i tag
-        $this->assertEquals('1', $this->superCache->get($key));
+        // MI assicuro che la chiave sia stata inserita prima di rimuoverla e controllo anche i tag
+        $this->assertEquals('1', $this->superCache->get($key, null,count($tags) > 0));
         $tagsCached = $this->superCache->getTagsOfKey($key);
         $this->assertEquals($tags, $tagsCached);
-        $this->superCache->forget($key);
+        $this->superCache->forget($key, null, false, count($tags) > 0);
         // Dopo la rimozione devono essere spariti chiave e tag
-        $this->assertNull($this->superCache->get($key));
+        $this->assertNull($this->superCache->get($key,null,count($tags) > 0));
         foreach ($tagsCached as $tag) {
             $shard = $this->superCache->getShardNameForTag($tag, $key);
             $this->assertNull($this->superCache->get($shard));
@@ -143,8 +143,12 @@ class SuperCacheManagerTest extends TestCase
     public function test_has(): void
     {
         $this->superCache->put('key1', 'value1');
+        $this->superCache->putWithTags('key2', 'value1', ['tag1']);
 
         $this->assertTrue($this->superCache->has('key1'));
+        $this->assertTrue($this->superCache->has('key2', null, true));
+        $finalKey = $this->superCache->getFinalKey('key2', true);
+        $this->assertTrue($this->superCache->has('{' . $finalKey . '}', null, true, true));
         $this->assertFalse($this->superCache->has('non_existing_key'));
     }
 
