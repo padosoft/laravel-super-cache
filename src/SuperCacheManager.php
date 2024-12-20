@@ -59,13 +59,6 @@ class SuperCacheManager
     {
         // Calcola la chiave con o senza namespace in base alla configurazione
         $finalKey = $this->getFinalKey($key);
-        /**
-         * $this->redis->getRedisConnection($connection_name)->set($finalKey, $this->serializeForRedis($value));
-         *
-         * if ($ttl !== null) {
-         * $this->redis->getRedisConnection($connection_name)->expire($finalKey, $ttl);
-         * }
-         */
         if ($ttl !== null) {
             $this->redis->getRedisConnection($connection_name)->setEx('{' . $finalKey . '}', $ttl, $this->serializeForRedis($value));
 
