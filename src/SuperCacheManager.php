@@ -167,7 +167,7 @@ class SuperCacheManager
     public function forget(string $key, ?string $connection_name = null, bool $isFinalKey = false, bool $isWithTags = false, bool $onlyTags = false): void
     {
         if ($isFinalKey) {
-            $finalKey = $key;
+            $finalKey = str_replace(['{', '}'], '', $key);
         } else {
             $finalKey = $this->getFinalKey($key, $isWithTags);
         }
@@ -292,12 +292,12 @@ class SuperCacheManager
     public function has(string $key, ?string $connection_name = null, bool $isWithTags = false, bool $isfinalKey = false): bool
     {
         if ($isfinalKey) {
-            $finalKey = $key;
+            $finalKey = str_replace(['{', '}'], '', $key);
         } else {
-            $finalKey = '{' . $this->getFinalKey($key, $isWithTags) . '}';
+            $finalKey = $this->getFinalKey($key, $isWithTags);
         }
 
-        return $this->redis->getRedisConnection($connection_name)->exists($finalKey) > 0;
+        return $this->redis->getRedisConnection($connection_name)->exists('{' . $finalKey . '}') > 0;
     }
 
     /**
