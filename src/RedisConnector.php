@@ -37,10 +37,10 @@ class RedisConnector
         $nativeRedis = new \Redis();
         if ($host !== null && $port !== null) {
             // Se ho host e port (caso del cluster) uso questi
-            $nativeRedis->connect($host, $port);
+            $nativeRedis->connect($host, $port, 0, null, 0, -1);
         } else {
             // Altrimenti utilizzo host e port dalla configurazione della connessione standalone
-            $nativeRedis->connect($config['host'], $config['port']);
+            $nativeRedis->connect($config['host'], $config['port'], 0, null, 0, -1);
         }
 
         // Autenticazione con username e password (se configurati)
@@ -53,6 +53,7 @@ class RedisConnector
         // Seleziono il database corretto (Per il cluster è sempre 0)
         $database = (array_key_exists('database', $config) && $config['database'] !== '') ? (int) $config['database'] : 0;
         $nativeRedis->select($database);
+        $nativeRedis->setOption(\Redis::OPT_READ_TIMEOUT, -1);
 
         return ['connection' => $nativeRedis, 'database' => $database];
     }
