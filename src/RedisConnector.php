@@ -37,7 +37,7 @@ class RedisConnector
         $nativeRedis = new \Redis();
         if ($host !== null && $port !== null) {
             // Se ho host e port (caso del cluster) uso questi
-            $nativeRedis->connect($host, $port);
+            //$nativeRedis->connect($host, $port);
             $nativeRedis->connect($host, $port, 0, null, 0, -1);
         } else {
             // Altrimenti utilizzo host e port dalla configurazione della connessione standalone
