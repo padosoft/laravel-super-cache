@@ -109,7 +109,7 @@ class SuperCacheManager
 
             foreach ($tags as $tag) {
                 $shard = $this->getShardNameForTag($tag, $finalKey);
-                $result = $this->redis->getRedisConnection($connection_name)->sadd($shard, $finalKey);
+                $this->redis->getRedisConnection($connection_name)->sadd($shard, $finalKey);
             }
 
             $this->redis->getRedisConnection($connection_name)->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
@@ -174,16 +174,14 @@ class SuperCacheManager
         $tags = $this->redis->getRedisConnection($connection_name)->smembers($this->prefix . 'tags:' . $finalKey);
         $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null;
         if (!$isCluster) {
-            $this->redis->pipeline(function ($pipe) use ($isWithTags, $onlyTags, $tags, $finalKey) {
+            $this->redis->pipeline(function ($pipe) use ($tags, $finalKey) {
                 foreach ($tags as $tag) {
                     $shard = $this->getShardNameForTag($tag, $finalKey);
                     $pipe->srem($shard, $finalKey);
                 }
 
                 $pipe->del($this->prefix . 'tags:' . $finalKey);
-                if (!$onlyTags) {
-                    $pipe->del($finalKey);
-                }
+                $pipe->del($finalKey);
             }, $connection_name);
         } else {
             foreach ($tags as $tag) {
@@ -192,9 +190,7 @@ class SuperCacheManager
             }
 
             $this->redis->getRedisConnection($connection_name)->del($this->prefix . 'tags:' . $finalKey);
-            if (!$onlyTags) {
-                $this->redis->getRedisConnection($connection_name)->del($finalKey);
-            }
+            $this->redis->getRedisConnection($connection_name)->del($finalKey);
         }
     }
 
@@ -217,6 +213,7 @@ class SuperCacheManager
     public function getTagsOfKey(string $key, ?string $connection_name = null): array
     {
         $finalKey = $this->getFinalKey($key, true);
+
         return $this->redis->getRedisConnection($connection_name)->smembers($this->prefix . 'tags:' . $finalKey);
     }
 
