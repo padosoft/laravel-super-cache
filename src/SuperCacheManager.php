@@ -82,11 +82,10 @@ class SuperCacheManager
     public function putWithTags(string $key, mixed $value, array $tags, ?int $ttl = null, ?string $connection_name = null): void
     {
         $finalKey = $this->getFinalKey($key, true);
-        $finalTags = $this->getFinalTag($finalKey);
         // Usa pipeline solo se non è un cluster
         $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null;
         if (!$isCluster) {
-            $this->redis->pipeline(function ($pipe) use ($finalKey, $finalTags, $value, $tags, $ttl) {
+            $this->redis->pipeline(function ($pipe) use ($finalKey, $value, $tags, $ttl) {
                 // Qui devo mettere le {} perchè così mi assicuro che la chiave e i suoi tags stiano nello stesso has
                 if ($ttl !== null) {
                     $pipe->setEx($finalKey, $ttl, $this->serializeForRedis($value));
@@ -99,7 +98,7 @@ class SuperCacheManager
                     $pipe->sadd($shard, $finalKey);
                 }
 
-                $pipe->sadd($finalTags, ...$tags);
+                $pipe->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
             }, $connection_name);
         } else {
             if ($ttl !== null) {
@@ -113,7 +112,7 @@ class SuperCacheManager
                 $result = $this->redis->getRedisConnection($connection_name)->sadd($shard, $finalKey);
             }
 
-            $this->redis->getRedisConnection($connection_name)->sadd($finalTags, ...$tags);
+            $this->redis->getRedisConnection($connection_name)->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
         }
     }
 
@@ -171,18 +170,17 @@ class SuperCacheManager
         } else {
             $finalKey = $this->getFinalKey($key, $isWithTags);
         }
-        $finalTags = $this->getFinalTag($finalKey);
         // Recupera i tag associati alla chiave
-        $tags = $this->redis->getRedisConnection($connection_name)->smembers($finalTags);
+        $tags = $this->redis->getRedisConnection($connection_name)->smembers($this->prefix . 'tags:' . $finalKey);
         $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null;
         if (!$isCluster) {
-            $this->redis->pipeline(function ($pipe) use ($isWithTags, $onlyTags, $tags, $finalKey, $finalTags) {
+            $this->redis->pipeline(function ($pipe) use ($isWithTags, $onlyTags, $tags, $finalKey) {
                 foreach ($tags as $tag) {
                     $shard = $this->getShardNameForTag($tag, $finalKey);
                     $pipe->srem($shard, $finalKey);
                 }
 
-                $pipe->del($finalTags);
+                $pipe->del($this->prefix . 'tags:' . $finalKey);
                 if (!$onlyTags) {
                     $pipe->del($finalKey);
                 }
@@ -193,7 +191,7 @@ class SuperCacheManager
                 $this->redis->getRedisConnection($connection_name)->srem($shard, $finalKey);
             }
 
-            $this->redis->getRedisConnection($connection_name)->del($finalTags);
+            $this->redis->getRedisConnection($connection_name)->del($this->prefix . 'tags:' . $finalKey);
             if (!$onlyTags) {
                 $this->redis->getRedisConnection($connection_name)->del($finalKey);
             }
@@ -219,9 +217,7 @@ class SuperCacheManager
     public function getTagsOfKey(string $key, ?string $connection_name = null): array
     {
         $finalKey = $this->getFinalKey($key, true);
-        $finalTags = $this->getFinalTag($finalKey);
-
-        return $this->redis->getRedisConnection($connection_name)->smembers($finalTags);
+        return $this->redis->getRedisConnection($connection_name)->smembers($this->prefix . 'tags:' . $finalKey);
     }
 
     /**
@@ -266,16 +262,11 @@ class SuperCacheManager
         if ($this->useNamespace) {
             $namespace = $this->calculateNamespace($key);
 
-            return $this->prefix . $key . ':' . ($isWithTags ? 'byTags:' : '') . $namespace;
+            return $this->prefix . $key . ':' . $namespace;
         }
 
         // Se il namespace è disabilitato, usa la chiave senza suffisso
-        return $this->prefix . $key . ($isWithTags ? ':byTags' : '');
-    }
-
-    public function getFinalTag(string $finalKey): string
-    {
-        return $finalKey . ':tags';
+        return $this->prefix . $key;
     }
 
     /**
