@@ -94,7 +94,45 @@ class CleanOrphanedKeysCommand extends Command
     {
         // Carica il prefisso di default per le chiavi
         $prefix = config('supercache.prefix');
+        // Per ogni shard vado a cercare i bussolotti (SET) dei tags che contengono le chiavi
+        for ($i = 0; $i < $this->numShards; $i++) {
+            // Inserisco nel pattern supercache: così sonop sicura di trovare solo i SET che riguardano il contesto della supercache
+            $shard_key = '*' . config('supercache.prefix') . 'tag:*:shard:' . $i;
+            // Creo una connessione persistente perchè considerando la durata dell'elaborazione si evita che dopo 30 secondi muoia tutto!
+            $connection = $this->redis->getNativeRedisConnection($this->option('connection_name'));
 
+            $cursor = null;
+            do {
+                $response = $connection['connection']->scan($cursor, $shard_key);
+
+                if ($response === false) {
+                    //Nessuna chiave trovata ...
+                    break;
+                }
+
+                foreach ($response as $key) {
+                    // Ho trovato un bussolotto che matcha, vado a recuperare i membri del SET
+                    $members = $connection['connection']->sMembers($key);
+                    foreach ($members as $member) {
+                        // Controllo che la chiave sia morta, ma ATTENZIONE non posso usare la connessione che ho già perchè sono su un singolo nodo, mentre nel bussolotto potrebbero esserci chiavi in sharding diversi
+                        if ($this->redis->getRedisConnection($this->option('connection_name'))->exists($member)) {
+                            // La chiave è viva! vado avanti
+                            continue;
+                        }
+                        // Altrimenti rimuovo i cadaveri dal bussolotto e dai tags
+                        // Qui posso usare la connessione che già ho in quanto sto modificando il bussolotto che sicuramente è nello shard corretto del nodo
+                        $connection['connection']->srem($key, $member);
+                        // Rimuovo anche i tag, che però potrebbero essere in un altro nodo quindi uso una nuova connessione
+                        $this->redis->getRedisConnection($this->option('connection_name'))->del($member . ':tags');
+                    }
+                }
+            } while ($cursor !== 0); // Continua fino a completamento
+
+            // Chiudo la connessione
+            $connection['connection']->close();
+        }
+
+        /*
         // ATTENZIONE! il comando SMEMBERS non supporta *, per cui va usata la combinazipone di SCAN e SMEMBERS
         // Non usare MAI il comando KEYS se non si vuole distruggere il server!
 
@@ -177,5 +215,6 @@ class CleanOrphanedKeysCommand extends Command
         } catch (\Exception $e) {
             Log::error('Errore durante l\'esecuzione dello script Lua: ' . $e->getMessage());
         }
+        */
     }
 }
