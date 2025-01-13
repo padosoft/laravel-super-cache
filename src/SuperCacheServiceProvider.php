@@ -4,6 +4,7 @@ namespace Padosoft\SuperCache;
 
 use Illuminate\Support\ServiceProvider;
 use Padosoft\SuperCache\Console\GetAllTagsOfKeyCommand;
+use Padosoft\SuperCache\Console\GetClusterNodesCommand;
 use Padosoft\SuperCache\Console\ListenerCommand;
 use Padosoft\SuperCache\Console\CleanOrphanedKeysCommand;
 class SuperCacheServiceProvider extends ServiceProvider
@@ -36,6 +37,7 @@ class SuperCacheServiceProvider extends ServiceProvider
                 GetAllTagsOfKeyCommand::class,
                 ListenerCommand::class,
                 CleanOrphanedKeysCommand::class,
+                GetClusterNodesCommand::class,
             ]);
         }
     }
