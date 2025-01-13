@@ -148,7 +148,7 @@ class SuperCacheManagerTest extends TestCase
         $this->assertTrue($this->superCache->has('key1'));
         $this->assertTrue($this->superCache->has('key2', null, true));
         $finalKey = $this->superCache->getFinalKey('key2', true);
-        $this->assertTrue($this->superCache->has('{' . $finalKey . '}', null, true, true));
+        $this->assertTrue($this->superCache->has($finalKey, null, true, true));
         $this->assertFalse($this->superCache->has('non_existing_key'));
     }
 
