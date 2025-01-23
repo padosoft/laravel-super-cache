@@ -205,11 +205,11 @@ class ListenerCommand extends Command
                 // In caso di un cluster Redis il primo che arriva al count impostato fa scattare la pulizia.
                 // Possono andare in conflitto? No, perchè ogni nodo ha i suoi eventi, per cui non può esserci lo stesso evento expire su più nodi
                 if (count($this->batch) >= $this->batchSizeThreshold || $this->shouldProcessBatchByTime()) {
-                    if (config('database.redis.clusters.' . ($this->option('connection_name') ?? 'default')) !== null) {
-                        $this->processBatchOnCluster();
-                    } else {
-                        $this->processBatchOnStandalone();
-                    }
+                    //if (config('database.redis.clusters.' . ($this->option('connection_name') ?? 'default')) !== null) {
+                    $this->processBatchOnCluster();
+                    //} else {
+                    //    $this->processBatchOnStandalone();
+                    //}
                 }
             });
         } catch (\Throwable $e) {
