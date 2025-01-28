@@ -84,7 +84,7 @@ class SuperCacheManager
         $finalKey = $this->getFinalKey($key, true);
         // Usa pipeline solo se non è un cluster
         $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null;
-        $advancedMode = config('supercache.advancedMode', 0) === 1;
+        $advancedMode = (int) config('supercache.advancedMode', 0) === 1;
         if (!$isCluster) {
             $this->redis->pipeline(function ($pipe) use ($finalKey, $value, $tags, $ttl, $advancedMode) {
                 if ($ttl !== null) {
@@ -172,7 +172,7 @@ class SuperCacheManager
         } else {
             $finalKey = $this->getFinalKey($key, $isWithTags);
         }
-        $advancedMode = config('supercache.advancedMode', 0) === 1;
+        $advancedMode = (int) config('supercache.advancedMode', 0) === 1;
 
         if (!$advancedMode) {
             $this->redis->getRedisConnection($connection_name)->del($finalKey);
@@ -208,7 +208,7 @@ class SuperCacheManager
     {
         // ATTENZIONE, non si può fare in pipeline perchè ci sono anche comandi Redis che hanno bisogno di una promise
         // perchè restituiscono dei valori necessari alle istruzioni successive
-        $advancedMode = config('supercache.advancedMode', 0) === 1;
+        $advancedMode = (int) config('supercache.advancedMode', 0) === 1;
         foreach ($tags as $tag) {
             $keys = $this->getKeysOfTag($tag, $connection_name);
             foreach ($keys as $key) {
