@@ -14,4 +14,5 @@ return [
     // Parametri per il batching del listner
     'batch_size' => env('SUPERCACHE_BATCH_SIZE', 100),
     'time_threshold' => env('SUPERCACHE_TIME_THRESHHOLD', 1), //secondi
+    'advancedMode' => env('SUPERCACHE_ADVANCED_MODE', 0),
 ];

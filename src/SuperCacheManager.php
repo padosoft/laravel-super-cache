@@ -84,9 +84,9 @@ class SuperCacheManager
         $finalKey = $this->getFinalKey($key, true);
         // Usa pipeline solo se non è un cluster
         $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null;
+        $advancedMode = config('supercache.advancedMode', 0) === 1;
         if (!$isCluster) {
-            $this->redis->pipeline(function ($pipe) use ($finalKey, $value, $tags, $ttl) {
-                // Qui devo mettere le {} perchè così mi assicuro che la chiave e i suoi tags stiano nello stesso has
+            $this->redis->pipeline(function ($pipe) use ($finalKey, $value, $tags, $ttl, $advancedMode) {
                 if ($ttl !== null) {
                     $pipe->setEx($finalKey, $ttl, $this->serializeForRedis($value));
                 } else {
@@ -98,21 +98,23 @@ class SuperCacheManager
                     $pipe->sadd($shard, $finalKey);
                 }
 
-                $pipe->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
+                if ($advancedMode) {
+                    $pipe->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
+                }
             }, $connection_name);
         } else {
             if ($ttl !== null) {
                 $this->redis->getRedisConnection($connection_name)->setEx($finalKey, $ttl, $this->serializeForRedis($value));
             } else {
-                $result = $this->redis->getRedisConnection($connection_name)->set($finalKey, $this->serializeForRedis($value));
+                $this->redis->getRedisConnection($connection_name)->set($finalKey, $this->serializeForRedis($value));
             }
-
             foreach ($tags as $tag) {
                 $shard = $this->getShardNameForTag($tag, $finalKey);
                 $this->redis->getRedisConnection($connection_name)->sadd($shard, $finalKey);
             }
-
-            $this->redis->getRedisConnection($connection_name)->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
+            if ($advancedMode) {
+                $this->redis->getRedisConnection($connection_name)->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
+            }
         }
     }
 
@@ -170,6 +172,14 @@ class SuperCacheManager
         } else {
             $finalKey = $this->getFinalKey($key, $isWithTags);
         }
+        $advancedMode = config('supercache.advancedMode', 0) === 1;
+
+        if (!$advancedMode) {
+            $this->redis->getRedisConnection($connection_name)->del($finalKey);
+
+            return;
+        }
+
         // Recupera i tag associati alla chiave
         $tags = $this->redis->getRedisConnection($connection_name)->smembers($this->prefix . 'tags:' . $finalKey);
         $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null;
@@ -198,11 +208,16 @@ class SuperCacheManager
     {
         // ATTENZIONE, non si può fare in pipeline perchè ci sono anche comandi Redis che hanno bisogno di una promise
         // perchè restituiscono dei valori necessari alle istruzioni successive
+        $advancedMode = config('supercache.advancedMode', 0) === 1;
         foreach ($tags as $tag) {
             $keys = $this->getKeysOfTag($tag, $connection_name);
             foreach ($keys as $key) {
                 // Con questo cancello sia i tag che le chiavi
                 $this->forget($key, $connection_name, true, true);
+                if (!$advancedMode) {
+                    $shard = $this->getShardNameForTag($tag, $key);
+                    $this->redis->getRedisConnection($connection_name)->srem($shard, $key);
+                }
             }
         }
     }

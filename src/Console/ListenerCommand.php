@@ -199,17 +199,20 @@ class ListenerCommand extends Command
             $pattern = '__keyevent@' . $async_connection['database'] . '__:expired';
             // La psubscribe è BLOCCANTE, il command resta attivo finchè non cade la connessione
             $async_connection['connection']->psubscribe([$pattern], function ($redis, $channel, $message, $key) {
-                $this->onExpireEvent($key);
+                $advancedMode = config('supercache.advancedMode', 0) === 1;
+                if ($advancedMode) {
+                    $this->onExpireEvent($key);
 
-                // Verifica se è necessario processare il batch
-                // In caso di un cluster Redis il primo che arriva al count impostato fa scattare la pulizia.
-                // Possono andare in conflitto? No, perchè ogni nodo ha i suoi eventi, per cui non può esserci lo stesso evento expire su più nodi
-                if (count($this->batch) >= $this->batchSizeThreshold || $this->shouldProcessBatchByTime()) {
-                    //if (config('database.redis.clusters.' . ($this->option('connection_name') ?? 'default')) !== null) {
-                    $this->processBatchOnCluster();
-                    //} else {
-                    //    $this->processBatchOnStandalone();
-                    //}
+                    // Verifica se è necessario processare il batch
+                    // In caso di un cluster Redis il primo che arriva al count impostato fa scattare la pulizia.
+                    // Possono andare in conflitto? No, perchè ogni nodo ha i suoi eventi, per cui non può esserci lo stesso evento expire su più nodi
+                    if (count($this->batch) >= $this->batchSizeThreshold || $this->shouldProcessBatchByTime()) {
+                        //if (config('database.redis.clusters.' . ($this->option('connection_name') ?? 'default')) !== null) {
+                        $this->processBatchOnCluster();
+                        //} else {
+                        //    $this->processBatchOnStandalone();
+                        //}
+                    }
                 }
             });
         } catch (\Throwable $e) {
