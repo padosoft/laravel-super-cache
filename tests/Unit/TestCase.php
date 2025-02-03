@@ -67,6 +67,7 @@ abstract class TestCase extends Orchestra
             return $redisClient;
         });
 
+        $app['config']->set('supercache.advancedMode', 1);
         $app['config']->set('database.redis.default', [
             'host' => '127.0.0.1',  // Non usato ma richiesto per coerenza
             'password' => null,
