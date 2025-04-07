@@ -26,7 +26,7 @@ class SuperCacheManagerTest extends TestCase
     /**
      * Data provider per il metodo `put`
      */
-    private static function test_put_data_provider(): array
+    public static function test_put_data_provider(): array
     {
         return [
             // Caso con namespace abilitato
@@ -41,7 +41,7 @@ class SuperCacheManagerTest extends TestCase
     /**
      * Data provider per il metodo `putWithTags`
      */
-    private static function test_put_with_tags_data_provider(): array
+    public static function test_put_with_tags_data_provider(): array
     {
         return [
             // Caso con namespace e un singolo tag
@@ -56,7 +56,7 @@ class SuperCacheManagerTest extends TestCase
     /**
      * Data provider per il metodo `forget`
      */
-    private static function test_forget_data_provider(): array
+    public static function test_forget_data_provider(): array
     {
         return [
             // Caso con un tag
