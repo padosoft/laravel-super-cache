@@ -26,7 +26,7 @@ class SuperCacheManagerTest extends TestCase
     /**
      * Data provider per il metodo `put`
      */
-    public static function test_put_data_provider(): array
+    public static function put_data_provider(): array
     {
         return [
             // Caso con namespace abilitato
@@ -41,7 +41,7 @@ class SuperCacheManagerTest extends TestCase
     /**
      * Data provider per il metodo `putWithTags`
      */
-    public static function test_put_with_tags_data_provider(): array
+    public static function put_with_tags_data_provider(): array
     {
         return [
             // Caso con namespace e un singolo tag
@@ -56,7 +56,7 @@ class SuperCacheManagerTest extends TestCase
     /**
      * Data provider per il metodo `forget`
      */
-    public static function test_forget_data_provider(): array
+    public static function forget_data_provider(): array
     {
         return [
             // Caso con un tag
@@ -69,7 +69,7 @@ class SuperCacheManagerTest extends TestCase
     }
 
     #[Test]
-    #[DataProvider('test_put_data_provider')]
+    #[DataProvider('put_data_provider')]
     public function test_put(string $key, mixed $value, ?int $ttl, bool $expected, bool $namespaceEnabled): void
     {
         // Configura se usare o meno il namespace
@@ -87,7 +87,7 @@ class SuperCacheManagerTest extends TestCase
     }
 
     #[Test]
-    #[DataProvider('test_put_with_tags_data_provider')]
+    #[DataProvider('put_with_tags_data_provider')]
     public function test_put_with_tags(string $key, mixed $value, array $tags, ?int $ttl, bool $expected, bool $namespaceEnabled): void
     {
         // Configura se usare o meno il namespace
@@ -107,7 +107,7 @@ class SuperCacheManagerTest extends TestCase
     }
 
     #[Test]
-    #[DataProvider('test_forget_data_provider')]
+    #[DataProvider('forget_data_provider')]
     public function test_forget(string $key, array $tags, bool $namespaceEnabled): void
     {
         // Configura se usare o meno il namespace
@@ -120,12 +120,12 @@ class SuperCacheManagerTest extends TestCase
         }
 
         // MI assicuro che la chiave sia stata inserita prima di rimuoverla e controllo anche i tag
-        $this->assertEquals('1', $this->superCache->get($key, null,count($tags) > 0));
+        $this->assertEquals('1', $this->superCache->get($key, null, count($tags) > 0));
         $tagsCached = $this->superCache->getTagsOfKey($key);
         $this->assertEquals($tags, $tagsCached);
         $this->superCache->forget($key, null, false, count($tags) > 0);
         // Dopo la rimozione devono essere spariti chiave e tag
-        $this->assertNull($this->superCache->get($key,null,count($tags) > 0));
+        $this->assertNull($this->superCache->get($key, null, count($tags) > 0));
         foreach ($tagsCached as $tag) {
             $shard = $this->superCache->getShardNameForTag($tag, $key);
             $this->assertNull($this->superCache->get($shard));
