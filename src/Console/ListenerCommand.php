@@ -74,9 +74,16 @@ class ListenerCommand extends Command
         }
 
         $original_key = str_replace(config('database.redis.options')['prefix'], '', $key);
-        //$original_key = $this->superCache->getOriginalKey($key);
+        // $original_key = $this->superCache->getOriginalKey($key);
         $hash_key = crc32($original_key); // questo hash mi serve poi nello script LUA in quanto Redis non ha nativa la funzione crc32, ma solo il crc16 che però non è nativo in php
         $this->batch[] = $original_key . '|' . $hash_key; // faccio la concatenzazione con il '|' come separatore in quanto Lua non supporta array multidimensionali
+
+        $logToElasticFunction = config('super_cache.log_to_elastic_function');
+        // Metodo del progetto
+        if (!is_callable($logToElasticFunction)) {
+            return;
+        }
+        $logToElasticFunction('REDIS_EXPIRED', $original_key);
     }
 
     /**
@@ -207,11 +214,11 @@ class ListenerCommand extends Command
                     // In caso di un cluster Redis il primo che arriva al count impostato fa scattare la pulizia.
                     // Possono andare in conflitto? No, perchè ogni nodo ha i suoi eventi, per cui non può esserci lo stesso evento expire su più nodi
                     if (count($this->batch) >= $this->batchSizeThreshold || $this->shouldProcessBatchByTime()) {
-                        //if (config('database.redis.clusters.' . ($this->option('connection_name') ?? 'default')) !== null) {
+                        // if (config('database.redis.clusters.' . ($this->option('connection_name') ?? 'default')) !== null) {
                         $this->processBatchOnCluster();
-                        //} else {
+                        // } else {
                         //    $this->processBatchOnStandalone();
-                        //}
+                        // }
                     }
                 }
             });

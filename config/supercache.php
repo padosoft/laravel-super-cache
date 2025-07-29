@@ -13,6 +13,7 @@ return [
     'num_namespace' => env('SUPERCACHE_NUM_NAMESPACE', 16),
     // Parametri per il batching del listner
     'batch_size' => env('SUPERCACHE_BATCH_SIZE', 100),
-    'time_threshold' => env('SUPERCACHE_TIME_THRESHHOLD', 1), //secondi
+    'time_threshold' => env('SUPERCACHE_TIME_THRESHHOLD', 1),  // secondi
     'advancedMode' => env('SUPERCACHE_ADVANCED_MODE', 0),
+    'log_to_elastic_function' => env('SUPERCACHE_LOG_TO_ELASTIC_FUNCTION'),
 ];
