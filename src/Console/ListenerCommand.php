@@ -78,12 +78,16 @@ class ListenerCommand extends Command
         $hash_key = crc32($original_key); // questo hash mi serve poi nello script LUA in quanto Redis non ha nativa la funzione crc32, ma solo il crc16 che però non è nativo in php
         $this->batch[] = $original_key . '|' . $hash_key; // faccio la concatenzazione con il '|' come separatore in quanto Lua non supporta array multidimensionali
 
-        $logToElasticFunction = config('super_cache.log_to_elastic_function');
-        // Metodo del progetto
-        if (!is_callable($logToElasticFunction)) {
-            return;
+        /* Inizio Log su Elastic */
+        try {
+            $logToElasticFunction = config('supercache.log_to_elastic_function');
+            // Metodo del progetto
+            if (is_callable($logToElasticFunction)) {
+                $logToElasticFunction('REDIS_EXPIRED', $original_key);
+            }
+        } catch (\Throwable $e) {
         }
-        $logToElasticFunction('REDIS_EXPIRED', $original_key);
+        /* Fine Log su Elastic */
     }
 
     /**

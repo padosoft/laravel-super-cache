@@ -172,13 +172,16 @@ class SuperCacheManager
         } else {
             $finalKey = $this->getFinalKey($key, $isWithTags);
         }
-
-        $logToElasticFunction = config('supercache.log_to_elastic_function');
-        // Metodo del progetto
-        if (!is_callable($logToElasticFunction)) {
-            return;
+        /* Inizio Log su Elastic */
+        try {
+            $logToElasticFunction = config('supercache.log_to_elastic_function');
+            // Metodo del progetto
+            if (is_callable($logToElasticFunction)) {
+                $logToElasticFunction('GESCAT_FORGET', $finalKey);
+            }
+        } catch (\Throwable $e) {
         }
-        $logToElasticFunction('GESCAT_FORGET', $finalKey);
+        /* Fine Log su Elastic */
 
         $advancedMode = (int) config('supercache.advancedMode', 0) === 1;
 
