@@ -79,18 +79,19 @@ class SuperCacheManager
      * Salva un valore nella cache con uno o più tag.
      * Il valore della chiave sarà serializzato tranne nel caso di valori numerici
      */
-    public function putWithTags(string $key, mixed $value, array $tags, ?int $ttl = null, ?string $connection_name = null): void
+    public function putWithTags(string $key, mixed $value, array $tags, ?int $ttl = null, ?string $connection_name = null, bool $serialize = true): void
     {
         $finalKey = $this->getFinalKey($key, true);
         // Usa pipeline solo se non è un cluster
         $isCluster = config('database.redis.clusters.' . ($connection_name ?? 'default')) !== null;
         $advancedMode = (int) config('supercache.advancedMode', 0) === 1;
+        $_VALUE_TO_STORE = $serialize ? $this->serializeForRedis($value) : $value;
         if (!$isCluster) {
-            $this->redis->pipeline(function ($pipe) use ($finalKey, $value, $tags, $ttl, $advancedMode) {
+            $this->redis->pipeline(function ($pipe) use ($finalKey, $_VALUE_TO_STORE, $tags, $ttl, $advancedMode) {
                 if ($ttl !== null) {
-                    $pipe->setEx($finalKey, $ttl, $this->serializeForRedis($value));
+                    $pipe->setEx($finalKey, $ttl, $_VALUE_TO_STORE);
                 } else {
-                    $pipe->set($finalKey, $this->serializeForRedis($value));
+                    $pipe->set($finalKey, $_VALUE_TO_STORE);
                 }
 
                 foreach ($tags as $tag) {
@@ -104,9 +105,9 @@ class SuperCacheManager
             }, $connection_name);
         } else {
             if ($ttl !== null) {
-                $this->redis->getRedisConnection($connection_name)->setEx($finalKey, $ttl, $this->serializeForRedis($value));
+                $this->redis->getRedisConnection($connection_name)->setEx($finalKey, $ttl, $_VALUE_TO_STORE);
             } else {
-                $this->redis->getRedisConnection($connection_name)->set($finalKey, $this->serializeForRedis($value));
+                $this->redis->getRedisConnection($connection_name)->set($finalKey, $_VALUE_TO_STORE);
             }
             foreach ($tags as $tag) {
                 $shard = $this->getShardNameForTag($tag, $finalKey);
