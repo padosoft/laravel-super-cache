@@ -117,7 +117,7 @@
                 "Padosoft\\SuperCache\\SuperCacheServiceProvider"
             ],
             "aliases": {
-                "SuperCache": "Padosoft\\SuperCache\\Facades\\SuperCache"
+                "SuperCache": "Padosoft\\SuperCache\\Facades\\SuperCacheFacade"
             }
         }
     }
