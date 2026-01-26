@@ -2,6 +2,7 @@
 
 namespace Padosoft\SuperCache;
 
+use Illuminate\Support\Facades\Redis;
 use Padosoft\SuperCache\Traits\ManagesLocksAndShardsTrait;
 
 class SuperCacheManager
@@ -79,7 +80,7 @@ class SuperCacheManager
      * Salva un valore nella cache con uno o più tag.
      * Il valore della chiave sarà serializzato tranne nel caso di valori numerici
      */
-    public function putWithTags(string $key, mixed $value, array $tags, ?int $ttl = null, ?string $connection_name = null, bool $serialize = true): void
+    public function putWithTags(string $key, mixed $value, array $tags, ?int $ttl = null, ?string $connection_name = null, bool $serialize = true, bool $disableCompression = false): void
     {
         $finalKey = $this->getFinalKey($key, true);
         // Usa pipeline solo se non è un cluster
@@ -104,17 +105,24 @@ class SuperCacheManager
                 }
             }, $connection_name);
         } else {
+            $connection = $this->redis->getRedisConnection($connection_name);
+            if ($disableCompression) {
+                $connection->client()->setOption(
+                    \Redis::OPT_COMPRESSION,
+                    \Redis::COMPRESSION_NONE
+                );
+            }
             if ($ttl !== null) {
-                $this->redis->getRedisConnection($connection_name)->setEx($finalKey, $ttl, $_VALUE_TO_STORE);
+                $connection->setEx($finalKey, $ttl, $_VALUE_TO_STORE);
             } else {
-                $this->redis->getRedisConnection($connection_name)->set($finalKey, $_VALUE_TO_STORE);
+                $connection->set($finalKey, $_VALUE_TO_STORE);
             }
             foreach ($tags as $tag) {
                 $shard = $this->getShardNameForTag($tag, $finalKey);
-                $this->redis->getRedisConnection($connection_name)->sadd($shard, $finalKey);
+                $connection->sadd($shard, $finalKey);
             }
             if ($advancedMode) {
-                $this->redis->getRedisConnection($connection_name)->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
+                $connection->sadd($this->prefix . 'tags:' . $finalKey, ...$tags);
             }
         }
     }
