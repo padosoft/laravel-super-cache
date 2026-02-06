@@ -110,5 +110,15 @@
             "Composer\\Config::disableProcessTimeout",
             "@php vendor/phpunit/phpunit/phpunit --configuration phpunit.xml --teamcity"
         ]
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Padosoft\\SuperCache\\SuperCacheServiceProvider"
+            ],
+            "aliases": {
+                "SuperCache": "Padosoft\\SuperCache\\Facades\\SuperCacheFacade"
+            }
+        }
     }
 }
