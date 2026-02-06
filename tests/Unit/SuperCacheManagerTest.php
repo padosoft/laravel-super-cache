@@ -185,4 +185,96 @@ class SuperCacheManagerTest extends TestCase
         $this->assertArrayHasKey('product:2', $keys);
         $this->assertArrayNotHasKey('order:1', $keys);
     }
+
+    public function test_remember_with_tags_retrieves_from_cache(): void
+    {
+        $key = 'test_remember_key';
+        $tags = ['tag1', 'tag2'];
+        $value = 'cached_value';
+        $callbackCalled = false;
+
+        // First, store a value with tags
+        $this->superCache->putWithTags($key, $value, $tags);
+
+        // Now use rememberWithTags - it should retrieve from cache without calling the callback
+        $result = $this->superCache->rememberWithTags($key, $tags, function () use (&$callbackCalled) {
+            $callbackCalled = true;
+
+            return 'new_value';
+        });
+
+        // Assert that the cached value was returned
+        $this->assertEquals($value, $result);
+        // Assert that the callback was NOT called (because value was in cache)
+        $this->assertFalse($callbackCalled);
+    }
+
+    public function test_remember_with_tags_stores_when_not_cached(): void
+    {
+        $key = 'test_remember_key_new';
+        $tags = ['tag1', 'tag2'];
+        $value = 'new_value';
+        $callbackCalled = false;
+
+        // Use rememberWithTags when the key doesn't exist
+        $result = $this->superCache->rememberWithTags($key, $tags, function () use (&$callbackCalled, $value) {
+            $callbackCalled = true;
+
+            return $value;
+        });
+
+        // Assert that the callback was called
+        $this->assertTrue($callbackCalled);
+        // Assert that the new value was returned
+        $this->assertEquals($value, $result);
+        // Assert that the value is now stored in cache with tags
+        $this->assertEquals($value, $this->superCache->get($key, null, true));
+        $this->assertEquals($tags, $this->superCache->getTagsOfKey($key));
+    }
+
+    public function test_remember_with_tags_with_ttl(): void
+    {
+        $key = 'test_remember_key_ttl';
+        $tags = ['tag1'];
+        $value = 'ttl_value';
+        $ttl = 3600;
+
+        // Use rememberWithTags with TTL
+        $result = $this->superCache->rememberWithTags($key, $tags, function () use ($value) {
+            return $value;
+        }, $ttl);
+
+        // Assert the value is cached
+        $this->assertEquals($value, $result);
+        // Check that TTL is set
+        $ttlSet = $this->superCache->getTTLKey($key, null, true);
+        $this->assertGreaterThan(0, $ttlSet);
+        $this->assertLessThanOrEqual($ttl, $ttlSet);
+    }
+
+    public function test_remember_with_tags_with_namespace_enabled(): void
+    {
+        // Enable namespace to test the fix for the double namespace bug
+        $this->superCache->useNamespace = true;
+
+        $key = 'test_remember_namespace';
+        $tags = ['tag1', 'tag2'];
+        $value = 'namespace_value';
+        $callbackCalled = false;
+
+        // Store value first
+        $this->superCache->putWithTags($key, $value, $tags);
+
+        // Use rememberWithTags - should retrieve from cache even with namespace enabled
+        $result = $this->superCache->rememberWithTags($key, $tags, function () use (&$callbackCalled) {
+            $callbackCalled = true;
+
+            return 'different_value';
+        });
+
+        // Assert that the cached value was returned
+        $this->assertEquals($value, $result);
+        // Assert that the callback was NOT called (verifying the bug is fixed)
+        $this->assertFalse($callbackCalled);
+    }
 }

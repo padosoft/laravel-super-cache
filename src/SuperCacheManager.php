@@ -143,8 +143,7 @@ class SuperCacheManager
      */
     public function rememberWithTags($key, array $tags, \Closure $callback, ?int $ttl = null, ?string $connection_name = null)
     {
-        $finalKey = $this->getFinalKey($key, true);
-        $value = $this->get($finalKey, $connection_name);
+        $value = $this->get($key, $connection_name, true);
 
         // Se esiste già, ok la ritorno
         if ($value !== null) {
