@@ -21,6 +21,15 @@ npm-debug.log
 yarn-error.log
 /.idea
 /.vscode
+
+##########################################
+# Composer package specific              #
+##########################################
+# Lock file should not be committed in packages/libraries
+# Only commit lock file in applications, not in reusable packages
+# See: https://getcomposer.org/doc/02-libraries.md#lock-file
+composer.lock
+
 ##########################################
 # general for every laravel project      #
 ##########################################
