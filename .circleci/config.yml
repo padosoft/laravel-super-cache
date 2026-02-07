@@ -8,7 +8,7 @@ executors:
     parameters:
       php-version:
         type: string
-        default: "8.0"
+        default: "8.2"
     working_directory: ~/laravel-super-cache
 
 jobs:
@@ -24,22 +24,20 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Install Redis Extension
-          #  ATTEZIONE! va messp il || true altrimenti il comando di install resta in attesa
+          name: Check if Redis extension is already loaded
           command: |
-            yes 'no' | sudo pecl install -f redis || true
-            sudo docker-php-ext-enable redis.so
-      #- run:
-      #    name: Update Composer
-      #    command: sudo composer self-update
+            if php -m | grep -q redis; then
+              echo "Redis extension is already loaded, skipping installation"
+            else
+              echo "Redis extension not found, installing..."
+              yes 'no' | sudo pecl install -f redis || true
+              sudo docker-php-ext-enable redis
+            fi
       - run:
-          name: Install Dependencies
-          command: composer install --prefer-dist --no-interaction
-      - run:
-          name: Install Dependencies
+          name: Install Dependencies with Laravel <<parameters.laravel-version>>
           command: |
-            sudo composer require "laravel/framework:^10.0" --no-update
-            sudo composer install --prefer-dist --no-interaction
+            composer require "laravel/framework:^<<parameters.laravel-version>>.0" "illuminate/support:^<<parameters.laravel-version>>.0" --no-update --no-interaction
+            composer install --prefer-dist --no-interaction
       - run:
           name: Prepare bootstrap/cache directory
           command: mkdir -p ./vendor/orchestra/testbench-core/laravel/bootstrap/cache && chmod -R 777 ./vendor/orchestra/testbench-core/laravel/bootstrap/cache
@@ -58,18 +56,26 @@ workflows:
           php-version: "8.2"
           laravel-version: "10"
       - test:
+          name: PHP 8.2 + Laravel 11
+          php-version: "8.2"
+          laravel-version: "11"
+      - test:
           name: PHP 8.3 + Laravel 10
           php-version: "8.3"
           laravel-version: "10"
       - test:
-          name: PHP 8.4 + Laravel 10
-          php-version: "8.4"
-          laravel-version: "10"
-      - test:
           name: PHP 8.3 + Laravel 11
           php-version: "8.3"
-          laravel-version: "10"
+          laravel-version: "11"
+      - test:
+          name: PHP 8.3 + Laravel 12
+          php-version: "8.3"
+          laravel-version: "12"
       - test:
           name: PHP 8.4 + Laravel 11
           php-version: "8.4"
-          laravel-version: "10"
+          laravel-version: "11"
+      - test:
+          name: PHP 8.4 + Laravel 12
+          php-version: "8.4"
+          laravel-version: "12"

@@ -143,8 +143,7 @@ class SuperCacheManager
      */
     public function rememberWithTags($key, array $tags, \Closure $callback, ?int $ttl = null, ?string $connection_name = null)
     {
-        $finalKey = $this->getFinalKey($key, true);
-        $value = $this->get($finalKey, $connection_name);
+        $value = $this->get($key, $connection_name, true);
 
         // Se esiste già, ok la ritorno
         if ($value !== null) {
@@ -360,16 +359,18 @@ class SuperCacheManager
         $results = [];
         foreach ($patterns as $pattern) {
             // Trova le chiavi che corrispondono al pattern usando SCAN
-            $iterator = null;
+            $iterator = 0;
             // Keys terminato il loop ritorna un false
             $tempArrKeys = [];
-            while ($keys = $this->redis->getRedisConnection($connection_name)->scan(
-                $iterator,
-                [
-                    'match' => $pattern,
-                    'count' => 20,
-                ]
-            )) {
+            do {
+                $keys = $this->redis->getRedisConnection($connection_name)->scan(
+                    $iterator,
+                    [
+                        'match' => $pattern,
+                        'count' => 20,
+                    ]
+                );
+                
                 $iterator = $keys[0];
 
                 foreach ($keys[1] as $key) {
@@ -382,7 +383,7 @@ class SuperCacheManager
                     $value = $this->get($original_key);
                     $results[$original_key] = $value;
                 }
-            }
+            } while ($iterator !== 0);
         }
 
         return $results;
@@ -390,7 +391,8 @@ class SuperCacheManager
 
     public function getOriginalKey(string $finalKey): string
     {
-        $originalKey = str_replace([config('database.redis.options')['prefix'], $this->prefix], '', $finalKey);
+        $redisPrefix = config('database.redis.options.prefix', '');
+        $originalKey = str_replace([$redisPrefix, $this->prefix], '', $finalKey);
         if (!$this->useNamespace) {
             return $originalKey;
         }
