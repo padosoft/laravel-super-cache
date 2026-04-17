@@ -18,6 +18,9 @@ A powerful caching solution for Laravel that uses Redis with Lua scripting, batc
 - [Requires](#requires)
 - [Installation and Configuration](#installation-and-configuration)
     - [Activating the Listener for Expiry Notifications](#activating-the-listener-for-expiry-notifications)
+    - [Enabling Redis Expiry Notifications (required for listener)](#enabling-redis-expiry-notifications-required-for-listener)
+    - [Scheduled Command for Orphaned Key Cleanup (optional but recommended)](#scheduled-command-for-orphaned-key-cleanup-optional-but-recommended)
+    - [Additional Artisan Commands](#additional-artisan-commands)
 - [Usage Examples](#usage-examples)
 - [Architecture Overview](#architecture-overview)
 - [Design Decisions and Performance](#design-decisions-and-performance)
@@ -53,8 +56,10 @@ Laravel's native caching mechanism has an implementation for tag-based cache man
 ## Requires
 
 - php: >=8.0
-- illuminate/database: ^9.0|^10.0|^11.0
-- illuminate/support:  ^9.0|^10.0|^11.0
+- laravel/framework: ^9.0|^10.0|^11.0|^12.0|^13.0
+- illuminate/support: ^9.0|^10.0|^11.0|^12.0|^13.0
+- predis/predis: ^2.0
+- ext-redis
 
 
 ## Installation and Configuration
@@ -65,47 +70,48 @@ To install `laravel-super-cache`, use Composer:
 composer require padosoft/laravel-super-cache
 ```
 
-After installing the package, add to in the config/app.php file of your main project
+The service provider and the `SuperCache` facade alias are auto-discovered by Laravel (see `extra.laravel` in `composer.json`), so no manual registration in `config/app.php` is required.
 
-```php
-'providers' => [
-        /*
-         * Laravel Framework Service Providers...
-         */
-        Illuminate\Auth\AuthServiceProvider::class,
-        ...
-        /*
-         * Super Cache
-         */
-        Padosoft\SuperCache\SuperCacheServiceProvider::class,
-    ],
-```
-
-and then publish the configuration file:
+Publish the configuration file:
 
 ```bash 
 php artisan vendor:publish --provider="Padosoft\SuperCache\SuperCacheServiceProvider"
 ```
 
-The configuration file allows you to set:
+The configuration file (`config/supercache.php`) exposes the following keys (each backed by an env variable):
 
-- `prefix`: The prefix for all cache keys, preventing conflicts when using the same Redis instance.
-- `connection`: The Redis connection to use, as defined in your `config/database.php`.
-- `SUPERCACHE_NUM_SHARDS`: The number of shards to optimize performance for tag management.
-- `retry_max`, `batch_size`, and `time_threshold`: Parameters to optimize batch processing and retries.
+- `prefix` (`SUPERCACHE_PREFIX`, default `supercache:`): prefix applied to all cache keys to avoid conflicts on a shared Redis instance.
+- `connection` (`SUPERCACHE_CONNECTION`, default `default`): Redis connection name defined in `config/database.php`.
+- `num_shards` (`SUPERCACHE_NUM_SHARDS`, default `256`): number of shards used to spread keys across per-tag sets.
+- `use_namespace` (`SUPERCACHE_USE_NAMESPACE`, default `false`): enables namespace suffixing on keys so that multiple listener processes can work in parallel.
+- `num_namespace` (`SUPERCACHE_NUM_NAMESPACE`, default `16`): number of namespaces available when `use_namespace` is enabled.
+- `batch_size` (`SUPERCACHE_BATCH_SIZE`, default `100`): maximum number of keys accumulated by the listener before a batch is flushed.
+- `time_threshold` (`SUPERCACHE_TIME_THRESHHOLD`, default `1`): maximum time in seconds before the listener flushes a batch even if `batch_size` has not been reached.
+- `advancedMode` (`SUPERCACHE_ADVANCED_MODE`, default `0`): when set to `1`, also stores the reverse `key → tags` set (`<prefix>tags:<key>`), enabling deeper cleanup at the cost of extra writes.
+- `log_to_elastic_function` (`SUPERCACHE_LOG_TO_ELASTIC_FUNCTION`): optional callable used to forward internal operations (e.g. `forget`) to an external logging backend.
 
 ### Activating the Listener for Expiry Notifications
-The listener is responsible for handling expired cache keys and cleaning up associated tags. 
-To activate it, add the following command to your `supervisor` configuration:
-    
+The listener is responsible for handling expired cache keys and cleaning up associated tags.
+To activate it, run it under a process supervisor (e.g. `supervisor`):
+
 ```ini
 [program:supercache_listener]
-command=php artisan supercache:listener {namespace}
+command=php artisan supercache:listener --namespace_id=%(process_num)s
 numprocs=5
 ```
 
-You can run multiple processes in parallel by setting different {namespace} values. 
-This allows the listener to handle notifications in parallel for optimal performance.
+The full signature is:
+
+```
+php artisan supercache:listener
+    [--connection_name=<redis connection>]
+    [--namespace_id=<id>]
+    [--checkEvent=1]
+    [--host=<cluster node host>]
+    [--port=<cluster node port>]
+```
+
+When `supercache.use_namespace` is `true`, run one listener per `--namespace_id` (0 .. `num_namespace - 1`) so each process handles only its own slice of expiry notifications, enabling parallel processing.
 
 ### Enabling Redis Expiry Notifications (required for listener)
 To enable the expiry notifications required by `laravel-super-cache`, you need to configure Redis (or AWS ElastiCache) to send `EXPIRED` events. 
@@ -153,32 +159,44 @@ If you are using Redis on AWS ElastiCache, follow these steps to enable expiry n
 
 After configuring the `notify-keyspace-events` parameter, Redis will publish `EXPIRED` events when keys expire, allowing the `laravel-super-cache` listener to process these events correctly.
 
-Assicurarsi che php abbia questo parametro, altrimenti dopo 60 secondo il comando esce perchè la connessione viene interrotta
+Make sure PHP is configured with the following setting, otherwise the listener command will exit after 60 seconds because the Redis connection gets interrupted:
 ```
 default_socket_timeout = -1
 ```
 
-### Scheduled Command for Orphaned Key Cleanup (Optionally but recommended)
+### Scheduled Command for Orphaned Key Cleanup (optional but recommended)
 Optionally but recommended, a scheduled command can be configured to periodically clean up any orphaned keys or sets left due to unexpected interruptions or errors. This adds an additional safety net to maintain consistency across cache keys and tags.
 
-```php
-php artisan supercache:clean
+```bash
+php artisan supercache:clean-orphans [--connection_name=<redis connection>]
 ```
 
 This can be scheduled using Laravel's scheduler to run at appropriate intervals, ensuring your cache remains clean and optimized.
 
+### Additional Artisan Commands
+
+- `supercache:get-tags {key}`: prints all tags currently associated with the given cache key (useful for debugging).
+- `supercache:get-cluster-nodes [--connection_name=<redis connection>]`: lists the nodes of the configured Redis cluster, used internally by the listener and the orphan cleaner when running against a cluster.
+
 
 ## Usage Examples
-Below are examples of using the `SuperCacheManager` and its facade `SuperCache`:
+Below are examples of using the `SuperCacheManager` through its facade. The facade class is `Padosoft\SuperCache\Facades\SuperCacheFacade` and is auto-aliased to `SuperCache`:
 
 ```php
-use SuperCache\Facades\SuperCache;
+use SuperCache; // alias registered by the package
 
-// Store an item in cache
-SuperCache::put('user:1', $user);
+// Store an item in cache (optional TTL in seconds, optional Redis connection name)
+SuperCache::put('user:1', $user, 3600);
 
 // Store an item in cache with tags
-SuperCache::putWithTags('product:1', $product, ['products', 'featured']);
+// Extra optional params: $ttl, $connection_name, $serialize (default true),
+// $disableCompression (default false, useful on Redis clusters using OPT_COMPRESSION)
+SuperCache::putWithTags('product:1', $product, ['products', 'featured'], 3600);
+
+// Remember: read-through cache with tags
+$product = SuperCache::rememberWithTags('product:1', ['products'], function () {
+    return Product::find(1);
+}, 3600);
 
 // Retrieve an item from cache
 $product = SuperCache::get('product:1');
@@ -186,21 +204,40 @@ $product = SuperCache::get('product:1');
 // Check if a key exists
 $exists = SuperCache::has('user:1');
 
-// Increment a counter
-SuperCache::increment('views:product:1');
+// Get the TTL of a key (in seconds)
+$ttl = SuperCache::getTTLKey('user:1');
 
-// Decrement a counter
+// Increment / decrement counters
+SuperCache::increment('views:product:1');
 SuperCache::decrement('stock:product:1', 5);
 
-// Get all keys matching a pattern
+// Remove a single key (and, in advanced mode, its tag references)
+SuperCache::forget('user:1');
+
+// Invalidate every key associated with one or more tags
+SuperCache::flushByTags(['products', 'featured']);
+
+// Introspection helpers
+$tagsOfKey = SuperCache::getTagsOfKey('product:1');
+$keysOfTag = SuperCache::getKeysOfTag('products');
+
+// Get all keys matching one or more patterns
 $keys = SuperCache::getKeys(['product:*']);
 
-// Flush all cache
-SuperCache::flush();
+// Acquire / release a short-lived optimistic lock
+if (SuperCache::lock('job:import', null, 10)) {
+    try {
+        // critical section
+    } finally {
+        SuperCache::unLock('job:import');
+    }
+}
 
+// Flush the whole SuperCache keyspace on a given connection
+SuperCache::flush();
 ```
 
-For all options see `SuperCacheManager` class.
+Every write/read method accepts an optional `?string $connection_name` as its last argument, so you can target a specific Redis connection defined in `config/database.php`. For the full signature of every method, see `src/SuperCacheManager.php`.
 
 
 ## Architecture Overview
@@ -229,10 +266,10 @@ To efficiently handle cache keys and their associated tags, `laravel-super-cache
     - **Naming Convention**: Each set is named with a pattern like `supercache:tag:<tag>:shard:<shard-number>`, where `<tag>` is the tag name and `<shard-number>` is determined by the sharding algorithm.
     - These sets allow quick retrieval of all keys associated with a tag, facilitating efficient cache invalidation by tag.
 
-3. **Set for Each Key (Key-Tag Sets)**:
-    - Each cache key has a set that holds all the tags associated with that key.
-    - **Naming Convention**: The set is named as `supercache:tags:<key>`, where `<key>` is the actual cache key.
-    - This structure allows quick identification of which tags are associated with a key, ensuring efficient clean-up when a key expires.
+3. **Set for Each Key (Key-Tag Sets) — advanced mode only**:
+    - When `supercache.advancedMode` is enabled (`SUPERCACHE_ADVANCED_MODE=1`), each cache key also gets a companion set that holds all of its tags.
+    - **Naming Convention**: the set is named `<prefix>tags:<final-key>` (e.g. `supercache:tags:supercache:key:product:123`).
+    - This structure allows quick identification of which tags are associated with a key, enabling deeper clean-up when a key is deleted via `forget`. In the default mode this reverse set is not written, so tag clean-up relies exclusively on the Redis expiry-notification listener.
 
 ### Sharding for Efficient Tag Management
 
@@ -299,7 +336,7 @@ To ensure keys are deleted from Redis when they expire, a combination of TTL and
 
 #### Listener for Expiry Notifications
 ![listener.webp](resources%2Fimages%2Flistener.webp)
-The listener is responsible for handling expired cache keys and cleaning up associated tags efficently by using mixed technics LUA script + batch processing + pipeline.
+The listener is responsible for handling expired cache keys and cleaning up associated tags efficiently by combining Lua scripts, batch processing and Redis pipelines.
 You can run multiple processes in parallel by setting different {namespace} values. This allows the listener to handle notifications in parallel for optimal performance.
 
 To ensure that keys are cleaned up efficiently upon expiration, `laravel-super-cache` uses Redis expiry notifications in combination with a dedicated listener process. This section explains how the notification system works, how the listener consumes these events, and the benefits of using batching, pipelines, and Lua scripts for performance optimization.
@@ -363,11 +400,11 @@ By combining batching, pipelining, and Lua scripts, the package ensures:
 This approach provides a robust, scalable, and highly performant cache management system for enterprise-grade Laravel applications.
 
 ### Scheduled Command for Orphaned Key Cleanup
-Optionally, a scheduled command can be configured to periodically clean up any orphaned keys or sets left due to unexpected interruptions or errors. 
+Optionally, a scheduled command can be configured to periodically clean up any orphaned keys or sets left due to unexpected interruptions or errors.
 This adds an additional safety net to maintain consistency across cache keys and tags.
 
-```php
-php artisan supercache:clean
+```bash
+php artisan supercache:clean-orphans [--connection_name=<redis connection>]
 ```
 
 This can be scheduled using Laravel's scheduler to run at appropriate intervals, ensuring your cache remains clean and optimized.
