@@ -48,9 +48,7 @@
         <!-- Recommended php.ini configuration by  https://phpunit.readthedocs.io/en/9.5/installation.html#recommended-php-configuration -->
         <ini name="memory_limit" value="-1"/>
         <ini name="error_reporting" value="-1"/>
-        <ini name="log_errors_max_len" value="0"/>
         <ini name="assert.exception" value="1"/>
-        <ini name="xdebug.show_exception_trace" value="0"/>
     </php>
     <source>
         <include>
