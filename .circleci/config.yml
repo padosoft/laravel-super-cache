@@ -83,3 +83,15 @@ workflows:
           name: PHP 8.5 + Laravel 12
           php-version: "8.5"
           laravel-version: "12"
+      - test:
+          name: PHP 8.3 + Laravel 13
+          php-version: "8.3"
+          laravel-version: "13"
+      - test:
+          name: PHP 8.4 + Laravel 13
+          php-version: "8.4"
+          laravel-version: "13"
+      - test:
+          name: PHP 8.5 + Laravel 13
+          php-version: "8.5"
+          laravel-version: "13"
