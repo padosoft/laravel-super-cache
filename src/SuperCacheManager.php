@@ -261,6 +261,7 @@ class SuperCacheManager
         }
         $keys = [];
 
+        app()->instance('supercache.currentTag', $tag);
         // Itera attraverso tutti gli shard del tag
         for ($i = 0; $i < $this->numShards; $i++) {
             $shard = $this->prefix . 'tag:' . $tag . ':shard:' . $i;
