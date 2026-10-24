@@ -185,9 +185,11 @@ if (strtolower($method) === 'scan') {
 ### Current Configuration
 
 **Test Matrix**:
-- PHP 8.2: Laravel 10, 11
-- PHP 8.3: Laravel 10, 11, 12
-- PHP 8.4: Laravel 11, 12
+- PHP 8.3: Laravel 12, 13
+- PHP 8.4: Laravel 12, 13
+- PHP 8.5: Laravel 12, 13
+
+Laravel 10 and 11 were removed from the matrix in October 2026: Composer 2.9+ blocks their releases because of known security advisories (`audit.block-insecure`), so `composer install` could not resolve them.
 
 **Dynamic Installation**:
 ```yaml
