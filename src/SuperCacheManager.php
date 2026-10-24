@@ -2,6 +2,8 @@
 
 namespace Padosoft\SuperCache;
 
+use Illuminate\Redis\Connections\Connection;
+use Illuminate\Redis\Connections\PhpRedisConnection;
 use Illuminate\Support\Facades\Redis;
 use Padosoft\SuperCache\Traits\ManagesLocksAndShardsTrait;
 
@@ -61,18 +63,30 @@ class SuperCacheManager
     }
 
     /**
+     * Cursore iniziale per i comandi SCAN/SSCAN con il client Redis della connessione.
+     *
+     * phpredis vuole null: l'intero 0 e, da phpredis 6, anche la stringa "0" significano "iterazione già
+     * conclusa" e il comando non viene nemmeno inviato a Redis (il client restituisce false). predis invece
+     * rifiuta null ("ERR invalid cursor") e vuole la stringa "0". Il cursore finale è l'intero 0 con phpredis
+     * e la stringa "0" con predis: per questo la condizione di uscita è (string) $cursor === '0'.
+     * Stessa distinzione fatta da Illuminate\Cache\RedisTagSet.
+     */
+    protected function initialScanCursor(Connection $connection): ?string
+    {
+        return $connection instanceof PhpRedisConnection ? null : '0';
+    }
+
+    /**
      * Cancella a lotti tutte le chiavi contenute in uno shard di tag.
      * Fuori da advancedMode rimuove anche i membri dallo shard; in advancedMode lo fa già forget()
      * tramite il set inverso key -> tags.
      *
-     * Il cursore iniziale è la stringa '0' e non l'intero 0: phpredis interpreta l'intero 0 come
-     * "iterazione già conclusa" e restituisce false senza interrogare Redis, mentre predis restituisce
-     * il cursore finale come stringa "0". Stesso approccio di Illuminate\Cache\RedisTaggedCache.
+     * Per il cursore iniziale e la condizione di uscita vedi initialScanCursor().
      */
     protected function forgetKeysOfShard(string $shard, bool $advancedMode, int $batchSize, ?string $connection_name = null): void
     {
         $connection = $this->redis->getRedisConnection($connection_name);
-        $cursor = '0';
+        $cursor = $this->initialScanCursor($connection);
         do {
             $response = $connection->sscan($shard, $cursor, ['count' => $batchSize]);
             if ($response === false) {
@@ -419,12 +433,13 @@ class SuperCacheManager
     {
         $results = [];
         foreach ($patterns as $pattern) {
-            // Cursore iniziale '0' come stringa: con l'intero 0 phpredis non esegue la SCAN e restituisce false,
-            // mentre predis restituisce il cursore finale come stringa "0" e il confronto stretto con l'intero 0
-            // non faceva mai terminare il ciclo.
-            $cursor = '0';
+            // Cursore iniziale dipendente dal client (vedi initialScanCursor): con l'intero 0 phpredis non esegue
+            // la SCAN e restituisce false, mentre predis restituisce il cursore finale come stringa "0" e il
+            // confronto stretto con l'intero 0 non faceva mai terminare il ciclo.
+            $connection = $this->redis->getRedisConnection($connection_name);
+            $cursor = $this->initialScanCursor($connection);
             do {
-                $response = $this->redis->getRedisConnection($connection_name)->scan(
+                $response = $connection->scan(
                     $cursor,
                     [
                         'match' => $pattern,

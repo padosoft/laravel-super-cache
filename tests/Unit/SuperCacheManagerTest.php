@@ -5,6 +5,7 @@ namespace Padosoft\SuperCache\Test\Unit;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Illuminate\Redis\Connections\PhpRedisConnection;
+use Illuminate\Redis\Connections\PredisConnection;
 use Mockery;
 use Padosoft\SuperCache\RedisConnector;
 use Padosoft\SuperCache\SuperCacheManager;
@@ -309,7 +310,7 @@ class SuperCacheManagerTest extends TestCase
 
         $sscans = array_values(array_filter(MockRedisConnection::$calls, fn (array $call) => $call[0] === 'sscan'));
         $this->assertCount(3, $sscans, 'le chiavi devono essere lette a lotti di flush_batch_size');
-        $this->assertSame('0', $sscans[0][1][1], 'il cursore iniziale deve essere la stringa "0"');
+        $this->assertSame('0', $sscans[0][1][1], 'con un client diverso da phpredis il cursore iniziale è la stringa "0"');
         $this->assertSame(['count' => 2], $sscans[0][1][2]);
     }
 
@@ -333,6 +334,28 @@ class SuperCacheManagerTest extends TestCase
         $srems = array_values(array_filter(MockRedisConnection::$calls, fn (array $call) => $call[0] === 'srem'));
         // Una SREM per lotto con tutte le chiavi del lotto, non una per chiave
         $this->assertSame([2, 2, 1], array_map(fn (array $call) => count($call[1]) - 1, $srems));
+    }
+
+    public function test_flush_by_tags_with_phpredis_starts_sscan_with_null_cursor(): void
+    {
+        config()->set('supercache.advancedMode', 0);
+        config()->set('supercache.num_shards', 1);
+        $shard = 'supercache:tag:products:shard:0';
+        $connection = Mockery::mock(PhpRedisConnection::class);
+        $connection->shouldReceive('sscan')->once()
+            ->with($shard, Mockery::on(fn ($cursor) => $cursor === null), ['count' => 1000])
+            ->andReturn([0, ['supercache:product:1', 'supercache:product:2']])
+        ;
+        $connection->shouldReceive('del')->once()->with('supercache:product:1');
+        $connection->shouldReceive('del')->once()->with('supercache:product:2');
+        $connection->shouldReceive('srem')->once()->with($shard, 'supercache:product:1', 'supercache:product:2');
+        $connector = Mockery::mock(RedisConnector::class);
+        $connector->shouldReceive('getRedisConnection')->andReturn($connection);
+        $manager = new SuperCacheManager($connector);
+
+        $manager->flushByTags(['products']);
+
+        $this->assertNull(SuperCacheManager::getCurrentFlushTag());
     }
 
     public function test_flush_by_tags_exposes_the_tag_being_flushed_and_resets_it(): void
@@ -367,12 +390,35 @@ class SuperCacheManagerTest extends TestCase
         $this->assertNull(SuperCacheManager::getCurrentFlushTag());
     }
 
-    public function test_get_keys_starts_scan_with_string_cursor_and_stops_on_string_zero(): void
+    public function test_get_keys_with_phpredis_starts_with_null_cursor_and_stops_on_int_zero(): void
     {
-        // Comportamento dei client reali: con l'intero 0 phpredis non esegue la SCAN, quindi il cursore iniziale
-        // deve essere la stringa '0'; predis restituisce il cursore finale come stringa "0", che prima non faceva
-        // terminare il ciclo.
+        // phpredis: l'intero 0 e, da phpredis 6, anche la stringa "0" significano "iterazione conclusa" e la SCAN
+        // non viene eseguita, quindi il cursore iniziale deve essere null; il cursore finale è l'intero 0
         $connection = Mockery::mock(PhpRedisConnection::class);
+        $connection->shouldReceive('scan')->once()->ordered()
+            ->with(Mockery::on(fn ($cursor) => $cursor === null), ['match' => 'supercache:product:*', 'count' => 20])
+            ->andReturn([17, ['supercache:product:1']])
+        ;
+        $connection->shouldReceive('scan')->once()->ordered()
+            ->with(Mockery::on(fn ($cursor) => $cursor === 17), ['match' => 'supercache:product:*', 'count' => 20])
+            ->andReturn([0, ['supercache:product:2']])
+        ;
+        $connection->shouldReceive('get')->with('supercache:product:1')->andReturn(serialize('value1'));
+        $connection->shouldReceive('get')->with('supercache:product:2')->andReturn(serialize('value2'));
+        $connector = Mockery::mock(RedisConnector::class);
+        $connector->shouldReceive('getRedisConnection')->andReturn($connection);
+        $manager = new SuperCacheManager($connector);
+
+        $keys = $manager->getKeys(['supercache:product:*']);
+
+        $this->assertSame(['product:1' => 'value1', 'product:2' => 'value2'], $keys);
+    }
+
+    public function test_get_keys_with_predis_starts_with_string_zero_cursor_and_stops_on_string_zero(): void
+    {
+        // predis: rifiuta null, vuole la stringa "0" e restituisce il cursore finale come stringa "0", che con il
+        // vecchio confronto stretto `!== 0` non faceva mai terminare il ciclo
+        $connection = Mockery::mock(PredisConnection::class);
         $connection->shouldReceive('scan')->once()->ordered()
             ->with(Mockery::on(fn ($cursor) => $cursor === '0'), ['match' => 'supercache:product:*', 'count' => 20])
             ->andReturn(['17', ['supercache:product:1']])

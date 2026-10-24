@@ -5,7 +5,7 @@ All Notable changes to `laravel-super-cache` will be documented in this file
 ## Unreleased
 
 ### Fixed
-- `getKeys()`: with phpredis the SCAN loop never ran (an integer `0` cursor means "iteration finished" for phpredis, so the wrapper returned `false` and reading `$keys[0]` raised an `ErrorException`), and with predis it never terminated (the final cursor comes back as the string `"0"`, which never matched `!== 0`). The cursor is now the string `'0'` and the loop stops on `(string) $cursor === '0'`, the same approach used by Laravel's `RedisTaggedCache`.
+- `getKeys()`: with phpredis the SCAN loop never ran (an integer `0` cursor means "iteration finished" for phpredis, so the wrapper returned `false` and reading `$keys[0]` raised an `ErrorException`), and with predis it never terminated (the final cursor comes back as the string `"0"`, which never matched `!== 0`). The initial cursor now depends on the client (`null` for phpredis, which treats `0` and, since phpredis 6, also the string `"0"` as a finished iteration; `"0"` for predis, which rejects `null`) and the loop stops on `(string) $cursor === '0'`, the same distinction Laravel's `RedisTagSet` makes.
 - `flushByTags()`: the keys of every tag shard are now read in `SSCAN` batches (`supercache.flush_batch_size`, default 1000) instead of a single `SMEMBERS`, so flushing a tag with hundreds of thousands of keys no longer dies with "Allowed memory size exhausted". Shard members are removed with one `SREM` per batch. Only single-key commands are used, so it works on Redis Cluster as well.
 
 ### Added
