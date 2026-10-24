@@ -10,6 +10,7 @@ All Notable changes to `laravel-super-cache` will be documented in this file
 
 ### Changed
 - CircleCI matrix: the Laravel 10 and 11 jobs were removed. Composer 2.9+ refuses to install their releases because of known security advisories (`audit.block-insecure`), so those jobs failed at `composer install` regardless of the code. `composer.json` constraints are unchanged, but Laravel 9/10/11 are no longer exercised by CI.
+- Scrutinizer: added `.scrutinizer.yml` (static analysis only on PHP 8.2, runtime dependencies installed ignoring the `ext-redis` platform requirement, tests left to CircleCI). The check had been erroring on every commit for lack of configuration.
 
 ### Added
 - `supercache.log_memory_exhaustion` (`SUPERCACHE_LOG_MEMORY_EXHAUSTION`, default `true`): a shutdown function that logs the tag being flushed when PHP dies for memory exhaustion during `flushByTags()`. It raises `memory_limit` before logging, otherwise the logger itself would die of a second out-of-memory and nothing would be written.
