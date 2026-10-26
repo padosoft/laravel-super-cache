@@ -13,7 +13,17 @@ use M6Web\Component\RedisMock\RedisMock;
  */
 class MockRedisConnection extends \Illuminate\Redis\Connections\Connection
 {
+    /**
+     * Snapshot dei SET per emulare SSCAN con la semantica di Redis, vedi emulateSscan()
+     */
+    private static array $sscanSnapshots = [];
+
     private $mock;
+
+    /**
+     * Registro delle chiamate Redis eseguite (metodo in minuscolo, parametri), per asserire batching e cursori nei test
+     */
+    public static array $calls = [];
     
     public function __construct(RedisMock $mock)
     {
@@ -55,6 +65,12 @@ class MockRedisConnection extends \Illuminate\Redis\Connections\Connection
     
     public function __call($method, $parameters)
     {
+        self::$calls[] = [strtolower($method), $parameters];
+
+        if (strtolower($method) === 'sscan') {
+            return $this->emulateSscan(...$parameters);
+        }
+
         // Special handling for scan to convert lowercase options to uppercase
         if (strtolower($method) === 'scan') {
             if (isset($parameters[1]) && is_array($parameters[1])) {
@@ -87,6 +103,26 @@ class MockRedisConnection extends \Illuminate\Redis\Connections\Connection
         // Instead of throwing, just return null for unknown methods to be more forgiving
         return null;
     }
+
+    /**
+     * RedisMock::sscan pagina per indice sull'array interno: se durante l'iterazione vengono rimossi membri
+     * (come fa flushByTags) l'array ha dei buchi e il mock termina in anticipo. Redis invece garantisce che
+     * gli elementi presenti per tutta la durata dell'iterazione vengano restituiti. Qui si pagina su uno
+     * snapshot preso al cursore '0' e si restituisce il cursore come stringa, come fa predis.
+     */
+    private function emulateSscan(string $key, string|int $cursor, array $options = []): array
+    {
+        $count = (int) ($options['count'] ?? $options['COUNT'] ?? 10);
+        $position = (int) $cursor;
+        if ($position === 0) {
+            self::$sscanSnapshots[$key] = array_values($this->mock->smembers($key) ?: []);
+        }
+        $snapshot = self::$sscanSnapshots[$key] ?? [];
+        $batch = array_slice($snapshot, $position, $count);
+        $next = $position + $count >= count($snapshot) ? '0' : (string) ($position + $count);
+
+        return [$next, $batch];
+    }
 }
 
 abstract class TestCase extends Orchestra
@@ -94,7 +130,8 @@ abstract class TestCase extends Orchestra
     protected function setUp(): void
     {
         parent::setUp();
-        
+        MockRedisConnection::$calls = [];
+
         // After Orchestra parent setUp, override the redis singleton with our RedisMock
         $this->overrideRedisWithMock();
     }

@@ -88,6 +88,8 @@ The configuration file (`config/supercache.php`) exposes the following keys (eac
 - `batch_size` (`SUPERCACHE_BATCH_SIZE`, default `100`): maximum number of keys accumulated by the listener before a batch is flushed.
 - `time_threshold` (`SUPERCACHE_TIME_THRESHHOLD`, default `1`): maximum time in seconds before the listener flushes a batch even if `batch_size` has not been reached.
 - `advancedMode` (`SUPERCACHE_ADVANCED_MODE`, default `0`): when set to `1`, also stores the reverse `key → tags` set (`<prefix>tags:<key>`), enabling deeper cleanup at the cost of extra writes.
+- `flush_batch_size` (`SUPERCACHE_FLUSH_BATCH_SIZE`, default `1000`): number of keys read per `SSCAN` round-trip by `flushByTags()`. Keys of a tag are deleted in batches instead of loading the whole tag set in memory with `SMEMBERS`, so flushing a tag with hundreds of thousands of keys no longer exhausts PHP memory.
+- `log_memory_exhaustion` (`SUPERCACHE_LOG_MEMORY_EXHAUSTION`, default `true`): when PHP dies with "Allowed memory size exhausted" while `flushByTags()` is running, logs an error (`SuperCache: memory exhausted while flushing tag`) with the tag being flushed. Laravel alone only logs file and line of the fatal error.
 - `log_to_elastic_function` (`SUPERCACHE_LOG_TO_ELASTIC_FUNCTION`): optional callable used to forward internal operations (e.g. `forget`) to an external logging backend.
 
 ### Activating the Listener for Expiry Notifications
@@ -215,13 +217,15 @@ SuperCache::decrement('stock:product:1', 5);
 SuperCache::forget('user:1');
 
 // Invalidate every key associated with one or more tags
+// (keys are read from the tag shards in SSCAN batches of `flush_batch_size`, Redis Cluster friendly)
 SuperCache::flushByTags(['products', 'featured']);
 
 // Introspection helpers
 $tagsOfKey = SuperCache::getTagsOfKey('product:1');
 $keysOfTag = SuperCache::getKeysOfTag('products');
 
-// Get all keys matching one or more patterns
+// Get all keys matching one or more patterns (keyspace SCAN: reliable on standalone Redis only,
+// on Redis Cluster phpredis scans a single master and predis does not support SCAN)
 $keys = SuperCache::getKeys(['product:*']);
 
 // Acquire / release a short-lived optimistic lock
@@ -422,6 +426,16 @@ Please see [CHANGELOG](CHANGELOG.md) for more information what has changed recen
 
 ``` bash
 composer test
+```
+
+Unit tests run against an in-memory Redis mock. The integration tests in `tests/Integration` run against a real Redis (standalone or cluster, phpredis or predis client) and are skipped when Redis is not reachable; they catch client-specific behaviour the mock cannot reproduce, such as the SCAN/SSCAN cursor semantics of phpredis and predis. Configure them with environment variables (see `tests/Integration/RealRedisTestCase.php`):
+
+``` bash
+# standalone Redis (defaults: 127.0.0.1:6379, phpredis client)
+SUPERCACHE_TEST_REDIS_HOST=127.0.0.1 SUPERCACHE_TEST_REDIS_PORT=6379 composer test
+
+# Redis Cluster with the predis client
+SUPERCACHE_TEST_REDIS_CLUSTER=127.0.0.1:7000,127.0.0.1:7001,127.0.0.1:7002 SUPERCACHE_TEST_REDIS_CLIENT=predis composer test
 ```
 
 ## Contributing

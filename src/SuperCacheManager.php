@@ -2,6 +2,8 @@
 
 namespace Padosoft\SuperCache;
 
+use Illuminate\Redis\Connections\Connection;
+use Illuminate\Redis\Connections\PhpRedisConnection;
 use Illuminate\Support\Facades\Redis;
 use Padosoft\SuperCache\Traits\ManagesLocksAndShardsTrait;
 
@@ -11,6 +13,14 @@ class SuperCacheManager
 
     protected RedisConnector $redis;
     protected int $numShards;
+
+    /**
+     * Tag che flushByTags() sta invalidando in questo momento (null fuori da flushByTags).
+     * È statico perché deve restare leggibile dalla shutdown function anche quando PHP muore per
+     * memoria esaurita, vedi \Padosoft\SuperCache\Service\MemoryExhaustionLogger.
+     */
+    protected static ?string $currentFlushTag = null;
+
     public string $prefix;
     public bool $useNamespace;
 
@@ -50,6 +60,56 @@ class SuperCacheManager
         $namespaceIndex = $hash % $numNamespaces;
 
         return 'ns' . $namespaceIndex; // Ad esempio, 'ns0', 'ns1', ..., 'ns15'
+    }
+
+    /**
+     * Cursore iniziale per i comandi SCAN/SSCAN con il client Redis della connessione.
+     *
+     * phpredis vuole null: l'intero 0 e, da phpredis 6, anche la stringa "0" significano "iterazione già
+     * conclusa" e il comando non viene nemmeno inviato a Redis (il client restituisce false). predis invece
+     * rifiuta null ("ERR invalid cursor") e vuole la stringa "0". Il cursore finale è l'intero 0 con phpredis
+     * e la stringa "0" con predis: per questo la condizione di uscita è (string) $cursor === '0'.
+     * Stessa distinzione fatta da Illuminate\Cache\RedisTagSet.
+     */
+    protected function initialScanCursor(Connection $connection): ?string
+    {
+        return $connection instanceof PhpRedisConnection ? null : '0';
+    }
+
+    /**
+     * Cancella a lotti tutte le chiavi contenute in uno shard di tag.
+     * Fuori da advancedMode rimuove anche i membri dallo shard; in advancedMode lo fa già forget()
+     * tramite il set inverso key -> tags.
+     *
+     * Per il cursore iniziale e la condizione di uscita vedi initialScanCursor().
+     */
+    protected function forgetKeysOfShard(string $shard, bool $advancedMode, int $batchSize, ?string $connection_name = null): void
+    {
+        $connection = $this->redis->getRedisConnection($connection_name);
+        $cursor = $this->initialScanCursor($connection);
+        do {
+            $response = $connection->sscan($shard, $cursor, ['count' => $batchSize]);
+            if ($response === false) {
+                // Wrapper phpredis di Laravel: iterazione conclusa senza elementi
+                break;
+            }
+            [$cursor, $keys] = $response;
+            foreach ($keys as $key) {
+                // Con questo cancello sia i tag che le chiavi
+                $this->forget($key, $connection_name, true, true);
+            }
+            if (!$advancedMode && !empty($keys)) {
+                $connection->srem($shard, ...$keys);
+            }
+        } while ((string) $cursor !== '0');
+    }
+
+    /**
+     * Tag in corso di invalidazione da parte di flushByTags(), null se nessuno.
+     */
+    public static function getCurrentFlushTag(): ?string
+    {
+        return static::$currentFlushTag;
     }
 
     /**
@@ -223,20 +283,32 @@ class SuperCacheManager
         }
     }
 
+    /**
+     * Invalida tutte le chiavi associate ai tag indicati.
+     *
+     * Le chiavi di ogni shard vengono lette a lotti con SSCAN (dimensione in supercache.flush_batch_size)
+     * invece di caricare l'intero SET in memoria con SMEMBERS: su tag con centinaia di migliaia di chiavi
+     * SMEMBERS mandava PHP in "Allowed memory size exhausted". SSCAN, SREM e DEL lavorano su una singola
+     * chiave e sono quindi utilizzabili anche su Redis Cluster.
+     */
     public function flushByTags(array $tags, ?string $connection_name = null): void
     {
         // ATTENZIONE, non si può fare in pipeline perchè ci sono anche comandi Redis che hanno bisogno di una promise
         // perchè restituiscono dei valori necessari alle istruzioni successive
         $advancedMode = (int) config('supercache.advancedMode', 0) === 1;
+        $batchSize = max(1, (int) config('supercache.flush_batch_size', 1000));
+
         foreach ($tags as $tag) {
-            $keys = $this->getKeysOfTag($tag, $connection_name);
-            foreach ($keys as $key) {
-                // Con questo cancello sia i tag che le chiavi
-                $this->forget($key, $connection_name, true, true);
-                if (!$advancedMode) {
-                    $shard = $this->getShardNameForTag($tag, $key);
-                    $this->redis->getRedisConnection($connection_name)->srem($shard, $key);
+            // Espone il tag in lavorazione a MemoryExhaustionLogger. Se PHP muore per memoria esaurita il finally
+            // non viene eseguito e il tag resta leggibile dalla shutdown function: è voluto.
+            static::$currentFlushTag = $tag;
+            try {
+                for ($i = 0; $i < $this->numShards; $i++) {
+                    $shard = $this->prefix . 'tag:' . $tag . ':shard:' . $i;
+                    $this->forgetKeysOfShard($shard, $advancedMode, $batchSize, $connection_name);
                 }
+            } finally {
+                static::$currentFlushTag = null;
             }
         }
     }
@@ -351,6 +423,9 @@ class SuperCacheManager
     /**
      * Get all keys matching given patterns.
      *
+     * Usa SCAN sul keyspace: su Redis Cluster il client phpredis interroga solo il primo nodo master
+     * e predis non supporta il comando, quindi questo metodo è affidabile solo su Redis standalone.
+     *
      * @param  array $patterns An array of patterns (e.g. ["product:*"])
      * @return array Array of key-value pairs.
      */
@@ -358,32 +433,34 @@ class SuperCacheManager
     {
         $results = [];
         foreach ($patterns as $pattern) {
-            // Trova le chiavi che corrispondono al pattern usando SCAN
-            $iterator = 0;
-            // Keys terminato il loop ritorna un false
-            $tempArrKeys = [];
+            // Cursore iniziale dipendente dal client (vedi initialScanCursor): con l'intero 0 phpredis non esegue
+            // la SCAN e restituisce false, mentre predis restituisce il cursore finale come stringa "0" e il
+            // confronto stretto con l'intero 0 non faceva mai terminare il ciclo.
+            $connection = $this->redis->getRedisConnection($connection_name);
+            $cursor = $this->initialScanCursor($connection);
             do {
-                $keys = $this->redis->getRedisConnection($connection_name)->scan(
-                    $iterator,
+                $response = $connection->scan(
+                    $cursor,
                     [
                         'match' => $pattern,
                         'count' => 20,
                     ]
                 );
-                
-                $iterator = $keys[0];
+                if ($response === false) {
+                    // Wrapper phpredis di Laravel: iterazione conclusa senza elementi
+                    break;
+                }
+                [$cursor, $keys] = $response;
 
-                foreach ($keys[1] as $key) {
+                foreach ($keys as $key) {
                     if ($key === null) {
                         continue;
                     }
-                    $tempArrKeys[] = $key;
 
                     $original_key = $this->getOriginalKey($key);
-                    $value = $this->get($original_key);
-                    $results[$original_key] = $value;
+                    $results[$original_key] = $this->get($original_key);
                 }
-            } while ($iterator !== 0);
+            } while ((string) $cursor !== '0');
         }
 
         return $results;

@@ -1,0 +1,24 @@
+# Scrutinizer esegue solo l'analisi statica: i test girano su CircleCI (vedi .circleci/config.yml), dove c'è un Redis
+# reale. Nell'ambiente Scrutinizer ext-redis non è disponibile, quindi il requisito di piattaforma viene ignorato
+# in fase di install, e si installano solo le dipendenze di runtime.
+build:
+    environment:
+        php:
+            version: 8.2
+    nodes:
+        analysis:
+            dependencies:
+                override:
+                    - composer install --no-interaction --prefer-dist --no-dev --no-scripts --ignore-platform-req=ext-redis
+            tests:
+                override:
+                    - php-scrutinizer-run
+
+filter:
+    excluded_paths:
+        - tests/*
+        - vendor/*
+        - storage/*
+
+checks:
+    php: true
